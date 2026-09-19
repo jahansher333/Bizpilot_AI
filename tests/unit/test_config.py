@@ -1,0 +1,204 @@
+from __future__ import annotations
+
+import os
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from app.core.config import EnvironmentMode, Settings
+
+PREFIX = "BIZPILOT_"
+
+
+@pytest.fixture(autouse=True)
+def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in list(os.environ):
+        if name.startswith(PREFIX):
+            monkeypatch.delenv(name, raising=False)
+
+
+def values(mode: str = "local") -> dict[str, object]:
+    url = "postgresql://user:password@localhost:5432/bizpilot"
+    if mode == "production":
+        url = (
+            "postgresql://runtime_app:S3cure_Db_Credential_2026_Long"
+            "@db.invalid:5432/bizpilot?sslmode=verify-full"
+        )
+    return {
+        "environment": mode,
+        "debug": False,
+        "database": {"url": url},
+        "auth": {"signing_secret": "secure-runtime-signing-secret-over-32-characters"},
+        "ai": {"enabled": False},
+        "logging": {"level": "INFO"},
+    }
+
+
+@pytest.mark.parametrize("mode", ["local", "test", "staging", "production"])
+def test_valid_modes(mode: str) -> None:
+    assert Settings(**values(mode)).environment is EnvironmentMode(mode)
+
+
+@pytest.mark.parametrize("missing", ["environment", "database", "auth"])
+def test_required_settings_fail_when_missing(missing: str) -> None:
+    config = values()
+    del config[missing]
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_invalid_mode() -> None:
+    with pytest.raises(ValidationError):
+        Settings(**(values() | {"environment": "preview"}))
+
+
+def test_invalid_logging_level() -> None:
+    config = values()
+    config["logging"] = {"level": "VERBOSE"}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_malformed_postgresql_url() -> None:
+    config = values()
+    config["database"] = {"url": "mysql://user:password@localhost/db"}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+@pytest.mark.parametrize("secret", ["", "   "])
+def test_auth_secret_must_not_be_blank(secret: str) -> None:
+    config = values()
+    config["auth"] = {"signing_secret": secret}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_ai_enabled_requires_configuration() -> None:
+    config = values()
+    config["ai"] = {"enabled": True}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+@pytest.mark.parametrize(
+    "ai",
+    [
+        {"enabled": True, "api_key": "", "model": "approved-model"},
+        {"enabled": True, "api_key": "   ", "model": "approved-model"},
+        {"enabled": True, "api_key": "test-key", "model": ""},
+        {"enabled": True, "api_key": "test-key", "model": "   "},
+    ],
+)
+def test_ai_enabled_rejects_blank_configuration(ai: dict[str, object]) -> None:
+    config = values()
+    config["ai"] = ai
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_ai_disabled_needs_no_live_configuration() -> None:
+    settings = Settings(**values())
+    assert settings.ai.api_key is None
+    assert settings.ai.model is None
+
+
+def test_production_rejects_debug() -> None:
+    with pytest.raises(ValidationError):
+        Settings(**(values("production") | {"debug": True}))
+
+
+def test_production_rejects_insecure_transport() -> None:
+    config = values("production")
+    config["database"] = {"url": "postgresql://user:password@db.invalid/bizpilot"}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+@pytest.mark.parametrize("secret", ["short", "change-me-placeholder-secret-that-is-long"])
+def test_production_rejects_placeholder_secret(secret: str) -> None:
+    config = values("production")
+    config["auth"] = {"signing_secret": secret}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "postgresql://user:password@db.invalid/bizpilot?sslmode=require",
+        "postgresql://runtime_app@db.invalid/bizpilot?sslmode=require",
+        "postgresql://runtime_app:%20%20@db.invalid/bizpilot?sslmode=require",
+        "postgresql://runtime_app:%70assword@db.invalid/bizpilot?sslmode=require",
+    ],
+)
+def test_production_rejects_missing_or_placeholder_database_secret(url: str) -> None:
+    config = values("production")
+    config["database"] = {"url": url}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_process_environment_overrides_dotenv(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "\n".join([
+            "BIZPILOT_ENVIRONMENT=local",
+            "BIZPILOT_DATABASE__URL=postgresql://dotenv:secret@localhost/dotenv",
+            "BIZPILOT_AUTH__SIGNING_SECRET=dotenv-secret-value",
+            "BIZPILOT_LOGGING__LEVEL=INFO",
+        ]),
+        encoding="utf-8",
+    )
+    monkeypatch.setenv("BIZPILOT_LOGGING__LEVEL", "ERROR")
+    assert Settings(_env_file=dotenv).logging.level == "ERROR"
+
+
+def test_secrets_are_redacted_from_representations() -> None:
+    settings = Settings(**values())
+    output = f"{settings!r} {settings} {settings.model_dump()}"
+    assert "secure-runtime-signing-secret-over-32-characters" not in output
+    assert "password" not in output
+
+
+def test_secrets_are_absent_from_validation_errors() -> None:
+    exposed_url = "not-postgresql://highly-sensitive-db-password@localhost/db"
+    exposed_secret = "change-me-super-sensitive-signing-secret"
+    config = values("production")
+    config["database"] = {"url": exposed_url}
+    config["auth"] = {"signing_secret": exposed_secret}
+    with pytest.raises(ValidationError) as caught:
+        Settings(**config)
+    assert exposed_url not in str(caught.value)
+    assert exposed_secret not in str(caught.value)
+
+
+def test_unknown_nested_name_in_direct_input_is_rejected() -> None:
+    config = values()
+    config["ai"] = {"enabled": False, "api_keey": "typo"}
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_unknown_nested_name_in_dotenv_is_rejected(tmp_path: Path) -> None:
+    dotenv = tmp_path / ".env"
+    dotenv.write_text(
+        "\n".join([
+            "BIZPILOT_ENVIRONMENT=local",
+            "BIZPILOT_DATABASE__URL=postgresql://dotenv:secret@localhost/dotenv",
+            "BIZPILOT_AUTH__SIGNING_SECRET=dotenv-secret-value",
+            "BIZPILOT_AI__API_KEEY=typo",
+        ]),
+        encoding="utf-8",
+    )
+    with pytest.raises(ValidationError):
+        Settings(_env_file=dotenv)
+
+
+def test_unknown_application_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIZPILOT_DATABASE__PASSWORD", "must-not-be-ignored")
+    with pytest.raises(ValueError, match="unknown BizPilot configuration"):
+        Settings(**values())
