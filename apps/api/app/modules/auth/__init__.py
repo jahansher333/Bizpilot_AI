@@ -14,11 +14,18 @@ from app.modules.auth.password import (
     PasswordService,
     PasswordVerificationResult,
 )
+from app.modules.auth.refresh import (
+    RefreshService,
+    generate_refresh_token,
+    hash_refresh_token,
+)
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.router import router as auth_router
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,
+    RefreshRequest,
+    RefreshResponse,
     RegisterRequest,
     RegisterResponse,
     UserMeResponse,
@@ -44,6 +51,9 @@ __all__ = [
     "PasswordService",
     "PasswordVerificationResult",
     "RefreshToken",
+    "RefreshRequest",
+    "RefreshResponse",
+    "RefreshService",
     "RegisterRequest",
     "RegisterResponse",
     "RegistrationService",
@@ -53,6 +63,8 @@ __all__ = [
     "UserMeResponse",
     "UserStatus",
     "auth_router",
+    "generate_refresh_token",
     "generate_uuid",
     "get_current_user",
+    "hash_refresh_token",
 ]

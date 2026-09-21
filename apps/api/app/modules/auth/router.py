@@ -6,9 +6,12 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.modules.auth.refresh import RefreshService
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,
+    RefreshRequest,
+    RefreshResponse,
     RegisterRequest,
     RegisterResponse,
     UserMeResponse,
@@ -49,6 +52,22 @@ async def login(
     """Handle user login."""
     service = LoginService(session)
     return await service.login(request)
+
+
+@router.post(
+    "/refresh",
+    response_model=RefreshResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Rotate refresh token and obtain a new access token",
+    description="Validates a single-use refresh token, rotates it, and issues a new access token.",
+)
+async def refresh(
+    request: RefreshRequest,
+    session: AsyncSession = Depends(get_session),
+) -> RefreshResponse:
+    """Handle refresh token rotation."""
+    service = RefreshService(session)
+    return await service.refresh(request)
 
 
 @router.get(

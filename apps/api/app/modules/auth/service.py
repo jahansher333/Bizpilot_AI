@@ -2,16 +2,19 @@
 
 from __future__ import annotations
 
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional
+import uuid
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.core.errors import AuthenticationException
 from app.modules.auth.account_policy import AccountPolicyService
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.password import PasswordService
+from app.modules.auth.refresh import generate_refresh_token, hash_refresh_token
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schemas import (
     LoginRequest,
@@ -93,15 +96,21 @@ class LoginService:
         password_service: Optional[PasswordService] = None,
         account_policy: Optional[AccountPolicyService] = None,
         token_service: Optional[TokenService] = None,
+        refresh_token_days: Optional[int] = None,
     ) -> None:
         self._session = session
         self._repository = repository or AuthRepository(session)
         self._password_service = password_service or PasswordService()
         self._account_policy = account_policy or AccountPolicyService()
         self._token_service = token_service or TokenService()
+        self._refresh_token_days = (
+            refresh_token_days
+            if refresh_token_days is not None
+            else get_settings().auth.refresh_token_days
+        )
 
     async def login(self, request: LoginRequest) -> LoginResponse:
-        """Authenticate user credentials and issue an unprivileged access token.
+        """Authenticate user credentials, issue access token and new refresh token family.
 
         Enforces strict non-enumeration:
         Any missing user, missing credential, invalid password, or inactive account
@@ -136,15 +145,26 @@ class LoginService:
             # Non-enumerating: never reveal account status
             raise AuthenticationException("Invalid email or password")
 
-        # Step 5: Maintenance writes (rehash if needed, update last_login_at)
+        # Step 5: Maintenance writes and refresh token creation
         # Bounded within savepoint; fail-closed on persistence failure
         now = datetime.now(timezone.utc)
+        raw_refresh_token = generate_refresh_token()
+        refresh_hash = hash_refresh_token(raw_refresh_token)
+        family_id = uuid.uuid4()
+        family_expires_at = now + timedelta(days=self._refresh_token_days)
+
         try:
             async with self._session.begin_nested():
                 if verify_result.needs_rehash:
                     new_hash = self._password_service.hash_password(request.password)
                     await self._repository.update_password_hash(user.id, new_hash)
                 await self._repository.update_last_login_at(user.id, now)
+                await self._repository.create_refresh_token(
+                    user_id=user.id,
+                    token_hash=refresh_hash,
+                    token_family_id=family_id,
+                    expires_at=family_expires_at,
+                )
         except Exception:
             # Re-raise to let the database/server error propagate (fail closed)
             raise
@@ -156,4 +176,5 @@ class LoginService:
             access_token=token_result.token,
             token_type="bearer",
             expires_in=token_result.expires_in,
+            refresh_token=raw_refresh_token,
         )

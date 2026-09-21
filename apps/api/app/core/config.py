@@ -43,6 +43,7 @@ class AuthenticationSettings(BaseModel):
     jwt_issuer: str = "bizpilot-api"
     jwt_audience: str = "bizpilot-web"
     previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
+    refresh_token_days: int = Field(default=30, ge=1)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
@@ -117,7 +118,9 @@ class Settings(BaseSettings):
                 "bizpilot_auth__argon2_parallelism",
                 "bizpilot_auth__jwt_issuer", "bizpilot_auth__jwt_audience",
                 "bizpilot_auth__previous_signing_secrets",
+                "bizpilot_auth__refresh_token_days",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
+
                 "bizpilot_logging__level", "bizpilot_logging__json_logs",
             }
             unknown = sorted(

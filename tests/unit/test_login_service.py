@@ -88,11 +88,15 @@ async def test_login_service_successful_flow(
     assert resp.access_token
     assert resp.token_type == "bearer"
     assert resp.expires_in == 900
+    assert resp.refresh_token
 
     repo.get_user_by_email.assert_awaited_once_with("owner@example.com")
     repo.get_credential_by_user_id.assert_awaited_once_with(user_id)
     repo.update_last_login_at.assert_awaited_once()
     assert repo.update_last_login_at.await_args.args[0] == user_id
+    repo.create_refresh_token.assert_awaited_once()
+    assert repo.create_refresh_token.await_args.kwargs["user_id"] == user_id
+
 
 
 
@@ -288,11 +292,13 @@ async def test_login_service_rehashes_when_needed(
     resp = await service.login(req)
 
     assert resp.access_token
+    assert resp.refresh_token
     mock_pwd_service.hash_password.assert_called_once_with(raw_password)
     repo.update_password_hash.assert_awaited_once_with(
         user_id, "$argon2id$v=19$m=65536,t=3,p=4$new_hash"
     )
     repo.update_last_login_at.assert_awaited_once()
+    repo.create_refresh_token.assert_awaited_once()
 
 
 @pytest.mark.asyncio

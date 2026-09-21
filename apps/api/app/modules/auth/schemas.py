@@ -73,6 +73,33 @@ class LoginResponse(BaseModel):
     access_token: str
     token_type: str = "bearer"
     expires_in: int
+    refresh_token: str
+
+
+class RefreshRequest(BaseModel):
+    """Request payload for access token renewal and refresh token rotation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    refresh_token: str = Field(
+        ...,
+        min_length=32,
+        max_length=128,
+        description="Opaque cryptographically random refresh token",
+    )
+
+
+class RefreshResponse(BaseModel):
+    """Response payload returned upon successful refresh token rotation."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+    refresh_token: str
+
 
 
 class UserMeResponse(BaseModel):

@@ -245,3 +245,18 @@ def test_production_rejects_placeholder_previous_signing_secret() -> None:
     config["auth"]["previous_signing_secrets"] = ["change-me-placeholder-secret-that-is-long"]
     with pytest.raises(ValueError, match="must be a non-placeholder value"):
         Settings(**config)
+
+
+def test_refresh_token_days_default_and_validation() -> None:
+    settings = Settings(**values())
+    assert settings.auth.refresh_token_days == 30
+
+    config = values()
+    config["auth"]["refresh_token_days"] = 7
+    settings_custom = Settings(**config)
+    assert settings_custom.auth.refresh_token_days == 7
+
+    config_invalid = values()
+    config_invalid["auth"]["refresh_token_days"] = 0
+    with pytest.raises(ValidationError):
+        Settings(**config_invalid)

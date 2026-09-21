@@ -6,8 +6,9 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
+
 
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import (
@@ -150,6 +151,52 @@ class AuthRepository:
         stmt = select(RefreshToken).where(RefreshToken.token_hash == token_hash)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_refresh_token_by_hash_for_update(
+        self,
+        token_hash: str,
+    ) -> Optional[RefreshToken]:
+        """Fetch a refresh token by unique token hash under row-level lock."""
+        stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.token_hash == token_hash)
+            .with_for_update()
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def revoke_refresh_token(
+        self,
+        token_id: uuid.UUID,
+        revoked_at: datetime,
+    ) -> None:
+        """Mark an individual refresh token as revoked/consumed."""
+        stmt = (
+            update(RefreshToken)
+            .where(RefreshToken.id == token_id)
+            .values(revoked_at=revoked_at)
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+    async def revoke_token_family(
+        self,
+        token_family_id: uuid.UUID,
+        revoked_at: datetime,
+    ) -> int:
+        """Revoke all active refresh tokens belonging to a token family upon reuse detection."""
+        stmt = (
+            update(RefreshToken)
+            .where(
+                RefreshToken.token_family_id == token_family_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=revoked_at)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
+
 
     # -------------------------------------------------------------------------
     # Password Reset Token Persistence

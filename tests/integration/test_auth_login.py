@@ -65,6 +65,7 @@ async def test_login_successful_flow_and_me_endpoint(
     assert login_resp.status_code == 200
     data = login_resp.json()
     assert "access_token" in data
+    assert "refresh_token" in data
     assert data["token_type"] == "bearer"
     assert data["expires_in"] == 900
     token = data["access_token"]
