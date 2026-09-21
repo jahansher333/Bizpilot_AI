@@ -70,8 +70,8 @@ class RefreshService:
         if token.expires_at <= now:
             raise AuthenticationException("Invalid or expired refresh token")
 
-        # Verify associated user account state
-        user = await self._repository.get_user_by_id(token.user_id)
+        # Verify associated user account state under row-level lock
+        user = await self._repository.get_user_by_id_for_update(token.user_id)
         if user is None:
             raise AuthenticationException("Invalid or expired refresh token")
 

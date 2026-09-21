@@ -6,10 +6,13 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.modules.auth.logout import LogoutService
 from app.modules.auth.refresh import RefreshService
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,
+    LogoutRequest,
+    LogoutResponse,
     RefreshRequest,
     RefreshResponse,
     RegisterRequest,
@@ -68,6 +71,39 @@ async def refresh(
     """Handle refresh token rotation."""
     service = RefreshService(session)
     return await service.refresh(request)
+
+
+@router.post(
+    "/logout",
+    response_model=LogoutResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Logout current session",
+    description="Revokes the active refresh token family identified by the presented refresh token.",
+)
+async def logout(
+    request: LogoutRequest,
+    session: AsyncSession = Depends(get_session),
+) -> LogoutResponse:
+    """Handle current session logout."""
+    service = LogoutService(session)
+    return await service.logout_current_session(request)
+
+
+@router.post(
+    "/logout-all",
+    response_model=LogoutResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Logout all active sessions",
+    description="Revokes all active refresh sessions belonging to the authenticated user.",
+)
+async def logout_all(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> LogoutResponse:
+    """Handle logout-all-devices for authenticated principal."""
+    service = LogoutService(session)
+    return await service.logout_all_sessions(current_user.id)
+
 
 
 @router.get(

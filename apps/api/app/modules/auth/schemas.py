@@ -102,6 +102,31 @@ class RefreshResponse(BaseModel):
 
 
 
+class LogoutRequest(BaseModel):
+    """Request payload for current session logout."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    refresh_token: str = Field(
+        ...,
+        min_length=32,
+        max_length=128,
+        description="Opaque refresh token identifying the session family to terminate.",
+    )
+
+
+class LogoutResponse(BaseModel):
+    """Response payload for successful session termination."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(default="success", description="Status string.")
+    message: str = Field(default="Logged out successfully", description="User-facing summary message.")
+
+
 class UserMeResponse(BaseModel):
     """Minimal trusted authenticated identity response."""
 

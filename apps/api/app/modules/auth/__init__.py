@@ -14,6 +14,7 @@ from app.modules.auth.password import (
     PasswordService,
     PasswordVerificationResult,
 )
+from app.modules.auth.logout import LogoutService
 from app.modules.auth.refresh import (
     RefreshService,
     generate_refresh_token,
@@ -24,6 +25,8 @@ from app.modules.auth.router import router as auth_router
 from app.modules.auth.schemas import (
     LoginRequest,
     LoginResponse,
+    LogoutRequest,
+    LogoutResponse,
     RefreshRequest,
     RefreshResponse,
     RegisterRequest,
@@ -47,6 +50,9 @@ __all__ = [
     "LoginRequest",
     "LoginResponse",
     "LoginService",
+    "LogoutRequest",
+    "LogoutResponse",
+    "LogoutService",
     "PasswordResetToken",
     "PasswordService",
     "PasswordVerificationResult",

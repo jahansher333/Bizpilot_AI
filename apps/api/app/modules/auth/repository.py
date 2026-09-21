@@ -56,6 +56,13 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_user_by_id_for_update(self, user_id: uuid.UUID) -> Optional[User]:
+        """Fetch a User by primary key UUID under row-level lock."""
+        stmt = select(User).where(User.id == user_id).with_for_update()
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+
     async def get_user_by_email(self, email_normalized: str) -> Optional[User]:
         """Fetch a User by unique normalized email."""
         stmt = select(User).where(User.email_normalized == email_normalized)
@@ -196,6 +203,25 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         await self._session.flush()
         return result.rowcount
+
+    async def revoke_all_user_refresh_tokens(
+        self,
+        user_id: uuid.UUID,
+        revoked_at: datetime,
+    ) -> int:
+        """Revoke all active refresh tokens for a given user."""
+        stmt = (
+            update(RefreshToken)
+            .where(
+                RefreshToken.user_id == user_id,
+                RefreshToken.revoked_at.is_(None),
+            )
+            .values(revoked_at=revoked_at)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
+
 
 
     # -------------------------------------------------------------------------

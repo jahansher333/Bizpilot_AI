@@ -115,6 +115,7 @@ async def test_refresh_service_successful_rotation(token_service: TokenService) 
 
     repo.get_refresh_token_by_hash_for_update.return_value = existing_token
     repo.get_user_by_id.return_value = mock_user
+    repo.get_user_by_id_for_update.return_value = mock_user
 
     service = RefreshService(
         session=session,
@@ -297,6 +298,7 @@ async def test_refresh_service_inactive_user_rejected_non_enumerating(
 
     repo.get_refresh_token_by_hash_for_update.return_value = existing_token
     repo.get_user_by_id.return_value = inactive_user
+    repo.get_user_by_id_for_update.return_value = inactive_user
 
     service = RefreshService(
         session=session,
