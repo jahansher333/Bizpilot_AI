@@ -7,8 +7,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
 from app.modules.auth.logout import LogoutService
+from app.modules.auth.recovery import PasswordRecoveryService
 from app.modules.auth.refresh import RefreshService
 from app.modules.auth.schemas import (
+    ForgotPasswordRequest,
+    ForgotPasswordResponse,
     LoginRequest,
     LoginResponse,
     LogoutRequest,
@@ -17,6 +20,8 @@ from app.modules.auth.schemas import (
     RefreshResponse,
     RegisterRequest,
     RegisterResponse,
+    ResetPasswordRequest,
+    ResetPasswordResponse,
     UserMeResponse,
 )
 from app.modules.auth.service import LoginService, RegistrationService
@@ -104,6 +109,38 @@ async def logout_all(
     service = LogoutService(session)
     return await service.logout_all_sessions(current_user.id)
 
+
+
+@router.post(
+    "/forgot-password",
+    response_model=ForgotPasswordResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Initiate password recovery",
+    description="Initiates password recovery for the specified email. Returns a uniform non-enumerating 200 response.",
+)
+async def forgot_password(
+    request: ForgotPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ForgotPasswordResponse:
+    """Handle password recovery initiation."""
+    service = PasswordRecoveryService(session)
+    return await service.request_password_reset(request)
+
+
+@router.post(
+    "/reset-password",
+    response_model=ResetPasswordResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Complete password reset",
+    description="Redeems a single-use password reset token and updates the user credential.",
+)
+async def reset_password(
+    request: ResetPasswordRequest,
+    session: AsyncSession = Depends(get_session),
+) -> ResetPasswordResponse:
+    """Handle password reset redemption."""
+    service = PasswordRecoveryService(session)
+    return await service.reset_password(request)
 
 
 @router.get(

@@ -127,6 +127,67 @@ class LogoutResponse(BaseModel):
     message: str = Field(default="Logged out successfully", description="User-facing summary message.")
 
 
+class ForgotPasswordRequest(BaseModel):
+    """Request payload to initiate password recovery."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    email: EmailStr = Field(
+        ...,
+        max_length=255,
+        description="Registered user email address.",
+    )
+
+
+class ForgotPasswordResponse(BaseModel):
+    """Uniform non-enumerating response for password recovery requests."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(default="success", description="Status string.")
+    message: str = Field(
+        default="If an eligible account exists for this email, password recovery instructions have been sent.",
+        description="User-facing summary message.",
+    )
+
+
+class ResetPasswordRequest(BaseModel):
+    """Request payload to complete password reset."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    token: str = Field(
+        ...,
+        min_length=32,
+        max_length=128,
+        description="Opaque single-use password reset token.",
+    )
+    new_password: str = Field(
+        ...,
+        min_length=12,
+        max_length=128,
+        description="New account password meeting policy requirements.",
+    )
+
+
+class ResetPasswordResponse(BaseModel):
+    """Response payload for successful password reset."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    status: str = Field(default="success", description="Status string.")
+    message: str = Field(
+        default="Password reset successfully. Please log in with your new password.",
+        description="User-facing summary message.",
+    )
+
+
 class UserMeResponse(BaseModel):
     """Minimal trusted authenticated identity response."""
 

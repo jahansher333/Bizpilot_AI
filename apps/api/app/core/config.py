@@ -44,6 +44,7 @@ class AuthenticationSettings(BaseModel):
     jwt_audience: str = "bizpilot-web"
     previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
     refresh_token_days: int = Field(default=30, ge=1)
+    password_reset_token_minutes: int = Field(default=15, ge=1, le=1440)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":

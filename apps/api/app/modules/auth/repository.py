@@ -255,3 +255,52 @@ class AuthRepository:
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def get_password_reset_token_by_hash_for_update(
+        self,
+        token_hash: str,
+    ) -> Optional[PasswordResetToken]:
+        """Fetch a password reset token by unique token hash under row-level lock."""
+        stmt = (
+            select(PasswordResetToken)
+            .where(PasswordResetToken.token_hash == token_hash)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def consume_password_reset_token(
+        self,
+        token_id: uuid.UUID,
+        consumed_at: datetime,
+    ) -> None:
+        """Mark an individual password reset token as consumed."""
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.id == token_id,
+                PasswordResetToken.consumed_at.is_(None),
+            )
+            .values(consumed_at=consumed_at)
+        )
+        await self._session.execute(stmt)
+        await self._session.flush()
+
+    async def invalidate_active_password_reset_tokens(
+        self,
+        user_id: uuid.UUID,
+        consumed_at: datetime,
+    ) -> int:
+        """Mark all unconsumed password reset tokens for a user as consumed/invalidated."""
+        stmt = (
+            update(PasswordResetToken)
+            .where(
+                PasswordResetToken.user_id == user_id,
+                PasswordResetToken.consumed_at.is_(None),
+            )
+            .values(consumed_at=consumed_at)
+        )
+        result = await self._session.execute(stmt)
+        await self._session.flush()
+        return result.rowcount
