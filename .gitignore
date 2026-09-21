@@ -9,3 +9,8 @@ __pycache__/
 build/
 dist/
 .venv/
+# Frontend-generated files.
+node_modules/
+.next/
+coverage/
+*.tsbuildinfo

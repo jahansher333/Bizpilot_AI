@@ -13,6 +13,7 @@ PREFIX = "BIZPILOT_"
 
 @pytest.fixture(autouse=True)
 def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
     for name in list(os.environ):
         if name.startswith(PREFIX):
             monkeypatch.delenv(name, raising=False)

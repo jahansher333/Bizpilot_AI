@@ -1,0 +1,73 @@
+name: bizpilot-dev
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: bizpilot-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: bizpilot_dev
+      POSTGRES_PASSWORD: bizpilot_dev_password
+      POSTGRES_DB: bizpilot_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U bizpilot_dev -d bizpilot_dev"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile.dev
+    container_name: bizpilot-api
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      BIZPILOT_ENVIRONMENT: local
+      BIZPILOT_DEBUG: "true"
+      BIZPILOT_DATABASE__URL: postgresql://bizpilot_dev:bizpilot_dev_password@postgres:5432/bizpilot_dev
+      BIZPILOT_AUTH__SIGNING_SECRET: local-dev-signing-secret-minimum-32-chars-long
+      BIZPILOT_AI__ENABLED: "false"
+      BIZPILOT_LOGGING__LEVEL: DEBUG
+      BIZPILOT_LOGGING__JSON_LOGS: "false"
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./apps/api:/app/apps/api
+      - ./alembic:/app/alembic
+      - ./alembic.ini:/app/alembic.ini
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/healthz')\""]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
+  web:
+    build:
+      context: ./apps/web
+      dockerfile: Dockerfile.dev
+    container_name: bizpilot-web
+    restart: unless-stopped
+    depends_on:
+      api:
+        condition: service_healthy
+    environment:
+      NODE_ENV: development
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./apps/web:/app
+      - /app/node_modules
+      - /app/.next
+
+volumes:
+  postgres_data:
