@@ -12,6 +12,9 @@ from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationMiddleware
 from app.db.engine import dispose_engine
+from app.modules.auth import auth_router
+
+DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (auth_router,)
 
 
 @asynccontextmanager
@@ -26,7 +29,7 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
 
 def create_app(
     settings: Settings | None = None,
-    module_routers: Iterable[APIRouter] = (),
+    module_routers: Iterable[APIRouter] | None = None,
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(runtime_settings.logging)
@@ -48,7 +51,8 @@ def create_app(
     app.include_router(health_router)
 
     # API module routers
-    app.include_router(build_api_router(module_routers))
+    active_routers = DEFAULT_MODULE_ROUTERS if module_routers is None else module_routers
+    app.include_router(build_api_router(active_routers))
     return app
 
 

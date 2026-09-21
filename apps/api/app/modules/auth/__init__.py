@@ -15,6 +15,9 @@ from app.modules.auth.password import (
     PasswordVerificationResult,
 )
 from app.modules.auth.repository import AuthRepository
+from app.modules.auth.router import router as auth_router
+from app.modules.auth.schemas import RegisterRequest, RegisterResponse
+from app.modules.auth.service import RegistrationService
 
 __all__ = [
     "AccountPolicyService",
@@ -24,8 +27,12 @@ __all__ = [
     "PasswordService",
     "PasswordVerificationResult",
     "RefreshToken",
+    "RegisterRequest",
+    "RegisterResponse",
+    "RegistrationService",
     "User",
     "UserCredential",
     "UserStatus",
+    "auth_router",
     "generate_uuid",
 ]

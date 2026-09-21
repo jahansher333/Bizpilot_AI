@@ -22,8 +22,10 @@ def test_router_registry_has_no_business_routes(test_app) -> None:
     assert paths == {
         "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc",
         "/healthz", "/health", "/readyz", "/ready",
+        "/api/auth/register",
     }
-    assert not any(path.startswith("/api/") for path in paths)
+    assert not any(path.startswith("/api/orders") for path in paths)
+    assert not any(path.startswith("/api/products") for path in paths)
 
 
 def test_unknown_business_route_is_not_exposed(client) -> None:
