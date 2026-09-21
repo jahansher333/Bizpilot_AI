@@ -19,6 +19,7 @@ sys.path.insert(0, str(API_ROOT))
 
 from app.core.config import Settings  # noqa: E402
 from app.db.base import Base  # noqa: E402
+import app.modules.auth.models  # noqa: F401, E402
 
 
 config = context.config
