@@ -61,6 +61,19 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def update_last_login_at(
+        self,
+        user_id: uuid.UUID,
+        login_at: datetime,
+    ) -> Optional[User]:
+        """Update last_login_at timestamp for an authenticated user."""
+        user = await self.get_user_by_id(user_id)
+        if user is None:
+            return None
+        user.last_login_at = login_at
+        await self._session.flush()
+        return user
+
     # -------------------------------------------------------------------------
     # Credential Persistence
     # -------------------------------------------------------------------------

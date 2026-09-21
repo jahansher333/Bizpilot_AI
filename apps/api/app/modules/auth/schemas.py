@@ -44,3 +44,41 @@ class RegisterResponse(BaseModel):
     """Uniform, non-enumerating registration response."""
 
     message: str = "Registration request accepted. Please proceed to login."
+
+
+class LoginRequest(BaseModel):
+    """Request payload for user authentication."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    email: EmailStr = Field(
+        ...,
+        max_length=255,
+        description="User email address",
+    )
+    password: str = Field(
+        ...,
+        min_length=1,
+        max_length=128,
+        description="Plaintext user password",
+    )
+
+
+class LoginResponse(BaseModel):
+    """Response payload returned upon successful authentication."""
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
+
+
+class UserMeResponse(BaseModel):
+    """Minimal trusted authenticated identity response."""
+
+    id: str
+    email: str
+    display_name: str
+    status: str

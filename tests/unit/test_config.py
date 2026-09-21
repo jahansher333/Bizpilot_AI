@@ -203,3 +203,45 @@ def test_unknown_application_name_is_rejected(monkeypatch: pytest.MonkeyPatch) -
     monkeypatch.setenv("BIZPILOT_DATABASE__PASSWORD", "must-not-be-ignored")
     with pytest.raises(ValueError, match="unknown BizPilot configuration"):
         Settings(**values())
+
+
+def test_jwt_issuer_and_audience_defaults() -> None:
+    settings = Settings(**values())
+    assert settings.auth.jwt_issuer == "bizpilot-api"
+    assert settings.auth.jwt_audience == "bizpilot-web"
+    assert settings.auth.previous_signing_secrets == []
+
+
+def test_previous_signing_secrets_parsing_and_masking() -> None:
+    config = values()
+    config["auth"] = {
+        "signing_secret": "active-signing-secret-over-32-characters",
+        "previous_signing_secrets": [
+            "retired-signing-secret-1-over-32-chars",
+            "retired-signing-secret-2-over-32-chars",
+        ],
+    }
+    settings = Settings(**config)
+    assert len(settings.auth.previous_signing_secrets) == 2
+    assert (
+        settings.auth.previous_signing_secrets[0].get_secret_value()
+        == "retired-signing-secret-1-over-32-chars"
+    )
+    assert "retired-signing-secret-1" not in repr(settings.auth)
+
+
+def test_previous_signing_secrets_blank_rejected() -> None:
+    config = values()
+    config["auth"] = {
+        "signing_secret": "active-signing-secret-over-32-characters",
+        "previous_signing_secrets": ["   "],
+    }
+    with pytest.raises(ValidationError, match="previous authentication signing secret must not be blank"):
+        Settings(**config)
+
+
+def test_production_rejects_placeholder_previous_signing_secret() -> None:
+    config = values("production")
+    config["auth"]["previous_signing_secrets"] = ["change-me-placeholder-secret-that-is-long"]
+    with pytest.raises(ValueError, match="must be a non-placeholder value"):
+        Settings(**config)

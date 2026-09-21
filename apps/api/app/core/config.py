@@ -40,11 +40,17 @@ class AuthenticationSettings(BaseModel):
     argon2_time_cost: int = Field(default=3, ge=1)
     argon2_memory_cost_kib: int = Field(default=65536, ge=8192)
     argon2_parallelism: int = Field(default=4, ge=1)
+    jwt_issuer: str = "bizpilot-api"
+    jwt_audience: str = "bizpilot-web"
+    previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
         if not self.signing_secret.get_secret_value().strip():
             raise ValueError("authentication signing secret must not be blank")
+        for prev in self.previous_signing_secrets:
+            if not prev.get_secret_value().strip():
+                raise ValueError("previous authentication signing secret must not be blank")
         return self
 
 
@@ -109,6 +115,8 @@ class Settings(BaseSettings):
                 "bizpilot_auth__password_min_length", "bizpilot_auth__password_max_length",
                 "bizpilot_auth__argon2_time_cost", "bizpilot_auth__argon2_memory_cost_kib",
                 "bizpilot_auth__argon2_parallelism",
+                "bizpilot_auth__jwt_issuer", "bizpilot_auth__jwt_audience",
+                "bizpilot_auth__previous_signing_secrets",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_logging__level", "bizpilot_logging__json_logs",
             }
@@ -141,6 +149,8 @@ class Settings(BaseSettings):
         self._reject_placeholder_text("database username", unquote(parsed_database.username))
         self._reject_placeholder_text("database password", unquote(parsed_database.password))
         self._reject_placeholder("authentication signing secret", self.auth.signing_secret)
+        for prev in self.auth.previous_signing_secrets:
+            self._reject_placeholder("previous authentication signing secret", prev)
         if self.ai.enabled and self.ai.api_key is not None:
             self._reject_placeholder("AI API key", self.ai.api_key)
         return self

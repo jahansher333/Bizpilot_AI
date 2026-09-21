@@ -16,13 +16,30 @@ from app.modules.auth.password import (
 )
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.router import router as auth_router
-from app.modules.auth.schemas import RegisterRequest, RegisterResponse
-from app.modules.auth.service import RegistrationService
+from app.modules.auth.schemas import (
+    LoginRequest,
+    LoginResponse,
+    RegisterRequest,
+    RegisterResponse,
+    UserMeResponse,
+)
+from app.modules.auth.service import LoginService, RegistrationService
+from app.modules.auth.tokens import (
+    AccessTokenResult,
+    AuthenticatedUser,
+    TokenService,
+    get_current_user,
+)
 
 __all__ = [
+    "AccessTokenResult",
     "AccountPolicyService",
     "AuthRepository",
+    "AuthenticatedUser",
     "COMMON_PASSWORDS_DENYLIST",
+    "LoginRequest",
+    "LoginResponse",
+    "LoginService",
     "PasswordResetToken",
     "PasswordService",
     "PasswordVerificationResult",
@@ -30,9 +47,12 @@ __all__ = [
     "RegisterRequest",
     "RegisterResponse",
     "RegistrationService",
+    "TokenService",
     "User",
     "UserCredential",
+    "UserMeResponse",
     "UserStatus",
     "auth_router",
     "generate_uuid",
+    "get_current_user",
 ]

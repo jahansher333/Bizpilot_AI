@@ -2,15 +2,24 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AuthenticationException
+from app.modules.auth.account_policy import AccountPolicyService
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.password import PasswordService
 from app.modules.auth.repository import AuthRepository
-from app.modules.auth.schemas import RegisterRequest, RegisterResponse
+from app.modules.auth.schemas import (
+    LoginRequest,
+    LoginResponse,
+    RegisterRequest,
+    RegisterResponse,
+)
+from app.modules.auth.tokens import TokenService
 
 
 class RegistrationService:
@@ -72,3 +81,79 @@ class RegistrationService:
             return RegisterResponse()
 
         return RegisterResponse()
+
+
+class LoginService:
+    """Domain service orchestrating user authentication and access token issuance."""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        repository: Optional[AuthRepository] = None,
+        password_service: Optional[PasswordService] = None,
+        account_policy: Optional[AccountPolicyService] = None,
+        token_service: Optional[TokenService] = None,
+    ) -> None:
+        self._session = session
+        self._repository = repository or AuthRepository(session)
+        self._password_service = password_service or PasswordService()
+        self._account_policy = account_policy or AccountPolicyService()
+        self._token_service = token_service or TokenService()
+
+    async def login(self, request: LoginRequest) -> LoginResponse:
+        """Authenticate user credentials and issue an unprivileged access token.
+
+        Enforces strict non-enumeration:
+        Any missing user, missing credential, invalid password, or inactive account
+        raises AuthenticationException("Invalid email or password").
+        Timing mitigation is provided via PasswordService.verify_dummy().
+        """
+        email_normalized = request.email.strip().lower()
+
+        # Step 1: User lookup
+        user = await self._repository.get_user_by_email(email_normalized)
+        if user is None:
+            self._password_service.verify_dummy()
+            raise AuthenticationException("Invalid email or password")
+
+        # Step 2: Credential lookup
+        credential = await self._repository.get_credential_by_user_id(user.id)
+        if credential is None:
+            self._password_service.verify_dummy()
+            raise AuthenticationException("Invalid email or password")
+
+        # Step 3: Password verification (constant-time native argon2-cffi)
+        verify_result = self._password_service.verify_password(
+            request.password, credential.password_hash
+        )
+        if not verify_result.valid:
+            raise AuthenticationException("Invalid email or password")
+
+        # Step 4: Account lifecycle policy (ACTIVE check)
+        try:
+            self._account_policy.verify_user_can_authenticate(user)
+        except AuthenticationException:
+            # Non-enumerating: never reveal account status
+            raise AuthenticationException("Invalid email or password")
+
+        # Step 5: Maintenance writes (rehash if needed, update last_login_at)
+        # Bounded within savepoint; fail-closed on persistence failure
+        now = datetime.now(timezone.utc)
+        try:
+            async with self._session.begin_nested():
+                if verify_result.needs_rehash:
+                    new_hash = self._password_service.hash_password(request.password)
+                    await self._repository.update_password_hash(user.id, new_hash)
+                await self._repository.update_last_login_at(user.id, now)
+        except Exception:
+            # Re-raise to let the database/server error propagate (fail closed)
+            raise
+
+        # Step 6: Access token issuance
+        token_result = self._token_service.issue_access_token(user.id)
+
+        return LoginResponse(
+            access_token=token_result.token,
+            token_type="bearer",
+            expires_in=token_result.expires_in,
+        )
