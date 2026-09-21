@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy import select
@@ -88,6 +88,23 @@ class AuthRepository:
         stmt = select(UserCredential).where(UserCredential.user_id == user_id)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def update_password_hash(
+        self,
+        user_id: uuid.UUID,
+        new_password_hash: str,
+    ) -> Optional[UserCredential]:
+        """Update the stored password hash for a user and refresh password_updated_at.
+
+        Accepts ONLY password_hash. NEVER accepts plaintext passwords.
+        """
+        credential = await self.get_credential_by_user_id(user_id)
+        if credential is None:
+            return None
+        credential.password_hash = new_password_hash
+        credential.password_updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+        return credential
 
     # -------------------------------------------------------------------------
     # Refresh Token Persistence

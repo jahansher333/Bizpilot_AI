@@ -362,3 +362,32 @@ async def test_repository_transaction_rollback(db_session: AsyncSession) -> None
     assert user_after is None
     by_email = await repo.get_user_by_email(email)
     assert by_email is None
+
+
+@pytest.mark.asyncio
+async def test_repository_update_password_hash(db_session: AsyncSession) -> None:
+    """Verify updating credential password hash in PostgreSQL."""
+    repo = AuthRepository(db_session)
+    user = await repo.create_user(
+        email_normalized=f"update_hash_{uuid.uuid4().hex[:8]}@example.com",
+        display_name="Update Hash User",
+    )
+    initial_hash = "$argon2id$v=19$m=8192,t=1,p=1$initialhashvalue1234"
+    new_hash = "$argon2id$v=19$m=16384,t=2,p=2$updatedhashvalue5678"
+
+    cred = await repo.create_credential(user.id, initial_hash)
+    original_updated_at = cred.password_updated_at
+
+    # Update hash
+    updated = await repo.update_password_hash(user.id, new_hash)
+    assert updated is not None
+    assert updated.password_hash == new_hash
+    assert updated.password_updated_at is not None
+
+    # Verify query returns updated hash
+    queried = await repo.get_credential_by_user_id(user.id)
+    assert queried is not None
+    assert queried.password_hash == new_hash
+
+    # Updating non-existent user returns None
+    assert await repo.update_password_hash(uuid.uuid4(), new_hash) is None

@@ -20,7 +20,7 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def values(mode: str = "local") -> dict[str, object]:
-    url = "postgresql://user:password@localhost:5432/bizpilot"
+    url = "postgresql://user:db-secret-password@localhost:5432/bizpilot"
     if mode == "production":
         url = (
             "postgresql://runtime_app:S3cure_Db_Credential_2026_Long"
@@ -162,7 +162,7 @@ def test_secrets_are_redacted_from_representations() -> None:
     settings = Settings(**values())
     output = f"{settings!r} {settings} {settings.model_dump()}"
     assert "secure-runtime-signing-secret-over-32-characters" not in output
-    assert "password" not in output
+    assert "db-secret-password" not in output
 
 
 def test_secrets_are_absent_from_validation_errors() -> None:

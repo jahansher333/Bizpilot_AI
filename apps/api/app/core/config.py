@@ -35,6 +35,11 @@ class AuthenticationSettings(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True, extra="forbid")
     signing_secret: SecretStr
     access_token_minutes: int = Field(default=15, ge=1)
+    password_min_length: int = Field(default=12, ge=8, le=128)
+    password_max_length: int = Field(default=128, ge=64, le=1024)
+    argon2_time_cost: int = Field(default=3, ge=1)
+    argon2_memory_cost_kib: int = Field(default=65536, ge=8192)
+    argon2_parallelism: int = Field(default=4, ge=1)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
@@ -101,6 +106,9 @@ class Settings(BaseSettings):
             allowed = {
                 "bizpilot_environment", "bizpilot_debug", "bizpilot_database__url",
                 "bizpilot_auth__signing_secret", "bizpilot_auth__access_token_minutes",
+                "bizpilot_auth__password_min_length", "bizpilot_auth__password_max_length",
+                "bizpilot_auth__argon2_time_cost", "bizpilot_auth__argon2_memory_cost_kib",
+                "bizpilot_auth__argon2_parallelism",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_logging__level", "bizpilot_logging__json_logs",
             }
