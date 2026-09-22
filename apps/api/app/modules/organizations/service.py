@@ -1,13 +1,19 @@
-"""Domain service orchestrating organization and membership operations (ORG-001)."""
+"""Domain service orchestrating organization and membership operations (ORG-001, ORG-002)."""
 
 from __future__ import annotations
 
 import uuid
+from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.errors import AuthenticationException, NotFoundException
+from app.core.errors import (
+    AuthenticationException,
+    AuthorizationException,
+    ConflictException,
+    NotFoundException,
+)
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.tokens import AuthenticatedUser
 from app.modules.organizations.enums import (
@@ -15,10 +21,14 @@ from app.modules.organizations.enums import (
     MemberStatus,
     OrganizationStatus,
 )
+from app.modules.organizations.models import OrganizationMember
 from app.modules.organizations.repository import OrganizationRepository
 from app.modules.organizations.schemas import (
     CreateOrganizationRequest,
+    InviteMemberRequest,
+    OrganizationMemberResponse,
     OrganizationResponse,
+    UpdateMemberRoleRequest,
 )
 
 
@@ -118,3 +128,219 @@ class OrganizationService:
             )
             for org, member in rows
         ]
+
+    async def _verify_active_owner(
+        self,
+        organization_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> OrganizationMember:
+        """Verify that caller has an active owner membership in the specified organization."""
+        if current_user.status != UserStatus.ACTIVE.value:
+            raise AuthenticationException("User account is inactive or disabled")
+
+        member = await self._repository.get_member(
+            organization_id=organization_id,
+            user_id=current_user.id,
+        )
+        if member is None or member.status != MemberStatus.ACTIVE.value:
+            raise NotFoundException("Organization not found")
+
+        if member.role != MemberRole.OWNER.value:
+            raise AuthorizationException("Only organization owners can perform this action")
+
+        return member
+
+    async def list_members(
+        self,
+        organization_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> list[OrganizationMemberResponse]:
+        """List all members of an organization, restricted to active Owners."""
+        await self._verify_active_owner(organization_id, current_user)
+        rows = await self._repository.list_members(organization_id)
+        return [
+            OrganizationMemberResponse(
+                id=str(member.id),
+                organization_id=str(member.organization_id),
+                user_id=str(member.user_id),
+                role=member.role,
+                status=member.status,
+                invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
+                created_at=member.created_at,
+                updated_at=member.updated_at,
+                revoked_at=member.revoked_at,
+                email=user.email_normalized,
+                display_name=user.display_name,
+            )
+            for member, user in rows
+        ]
+
+    async def invite_member(
+        self,
+        organization_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+        request: InviteMemberRequest,
+    ) -> OrganizationMemberResponse:
+        """Invite a registered user to join the organization."""
+        await self._verify_active_owner(organization_id, current_user)
+
+        target_user = await self._repository.get_user_by_email(request.email)
+        if target_user is None:
+            raise NotFoundException(
+                f"User with email '{request.email}' not found. Please have them register first."
+            )
+        if target_user.status != UserStatus.ACTIVE.value:
+            raise NotFoundException("User account is inactive or disabled")
+
+        existing_member = await self._repository.get_member(organization_id, target_user.id)
+        if existing_member is not None:
+            if existing_member.status == MemberStatus.ACTIVE.value:
+                raise ConflictException("User is already an active member of this organization")
+            elif existing_member.status == MemberStatus.INVITED.value:
+                raise ConflictException("User already has a pending invitation to this organization")
+            elif existing_member.status == MemberStatus.REVOKED.value:
+                existing_member.status = MemberStatus.INVITED.value
+                existing_member.role = request.role.value
+                existing_member.invited_by_user_id = current_user.id
+                existing_member.revoked_at = None
+                existing_member.updated_at = datetime.now(timezone.utc)
+                await self._session.flush()
+                member = existing_member
+            else:
+                member = existing_member
+        else:
+            member = await self._repository.create_member(
+                organization_id=organization_id,
+                user_id=target_user.id,
+                role=request.role.value,
+                status=MemberStatus.INVITED.value,
+                invited_by_user_id=current_user.id,
+            )
+
+        return OrganizationMemberResponse(
+            id=str(member.id),
+            organization_id=str(member.organization_id),
+            user_id=str(member.user_id),
+            role=member.role,
+            status=member.status,
+            invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
+            created_at=member.created_at,
+            updated_at=member.updated_at,
+            revoked_at=member.revoked_at,
+            email=target_user.email_normalized,
+            display_name=target_user.display_name,
+        )
+
+    async def update_member_role(
+        self,
+        organization_id: uuid.UUID,
+        member_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+        request: UpdateMemberRoleRequest,
+    ) -> OrganizationMemberResponse:
+        """Update an organization member's role with last-owner protection."""
+        await self._verify_active_owner(organization_id, current_user)
+
+        row = await self._repository.get_member_by_id(organization_id, member_id)
+        if row is None:
+            raise NotFoundException("Member not found in organization")
+
+        member, user = row
+        if member.status == MemberStatus.REVOKED.value:
+            raise ConflictException("Cannot change role of a revoked member")
+
+        # Last-owner demotion check
+        if member.role == MemberRole.OWNER.value and request.role.value != MemberRole.OWNER.value:
+            active_owners = await self._repository.count_active_owners(organization_id, for_update=True)
+            if active_owners <= 1:
+                raise ConflictException("Cannot demote the last owner of the organization")
+
+        member.role = request.role.value
+        member.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+
+        return OrganizationMemberResponse(
+            id=str(member.id),
+            organization_id=str(member.organization_id),
+            user_id=str(member.user_id),
+            role=member.role,
+            status=member.status,
+            invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
+            created_at=member.created_at,
+            updated_at=member.updated_at,
+            revoked_at=member.revoked_at,
+            email=user.email_normalized,
+            display_name=user.display_name,
+        )
+
+    async def revoke_member(
+        self,
+        organization_id: uuid.UUID,
+        member_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> OrganizationMemberResponse:
+        """Revoke an organization member's access with last-owner protection."""
+        await self._verify_active_owner(organization_id, current_user)
+
+        row = await self._repository.get_member_by_id(organization_id, member_id)
+        if row is None:
+            raise NotFoundException("Member not found in organization")
+
+        member, user = row
+        if member.status != MemberStatus.REVOKED.value:
+            # Last-owner revocation check
+            if member.role == MemberRole.OWNER.value and member.status == MemberStatus.ACTIVE.value:
+                active_owners = await self._repository.count_active_owners(organization_id, for_update=True)
+                if active_owners <= 1:
+                    raise ConflictException("Cannot revoke the last owner of the organization")
+
+            member.status = MemberStatus.REVOKED.value
+            member.revoked_at = datetime.now(timezone.utc)
+            member.updated_at = datetime.now(timezone.utc)
+            await self._session.flush()
+
+        return OrganizationMemberResponse(
+            id=str(member.id),
+            organization_id=str(member.organization_id),
+            user_id=str(member.user_id),
+            role=member.role,
+            status=member.status,
+            invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
+            created_at=member.created_at,
+            updated_at=member.updated_at,
+            revoked_at=member.revoked_at,
+            email=user.email_normalized,
+            display_name=user.display_name,
+        )
+
+    async def accept_invitation(
+        self,
+        organization_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> OrganizationMemberResponse:
+        """Accept a pending invitation to an organization."""
+        if current_user.status != UserStatus.ACTIVE.value:
+            raise AuthenticationException("User account is inactive or disabled")
+
+        row = await self._repository.get_pending_invitation(organization_id, current_user.id)
+        if row is None:
+            raise NotFoundException("No pending invitation found for this organization")
+
+        member, user = row
+        member.status = MemberStatus.ACTIVE.value
+        member.updated_at = datetime.now(timezone.utc)
+        await self._session.flush()
+
+        return OrganizationMemberResponse(
+            id=str(member.id),
+            organization_id=str(member.organization_id),
+            user_id=str(member.user_id),
+            role=member.role,
+            status=member.status,
+            invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
+            created_at=member.created_at,
+            updated_at=member.updated_at,
+            revoked_at=member.revoked_at,
+            email=user.email_normalized,
+            display_name=user.display_name,
+        )

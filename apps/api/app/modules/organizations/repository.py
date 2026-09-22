@@ -8,6 +8,7 @@ from typing import Optional, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.modules.auth.models import User
 from app.modules.organizations.enums import (
     MemberRole,
     MemberStatus,
@@ -106,3 +107,93 @@ class OrganizationRepository:
         )
         result = await self._session.execute(stmt)
         return result.all()
+
+    async def get_user_by_email(self, email: str) -> Optional[User]:
+        """Fetch user by normalized email."""
+        stmt = select(User).where(User.email_normalized == email.strip().lower())
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_member(
+        self,
+        organization_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Optional[OrganizationMember]:
+        """Fetch organization member by organization and user ID."""
+        stmt = select(OrganizationMember).where(
+            OrganizationMember.organization_id == organization_id,
+            OrganizationMember.user_id == user_id,
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
+    async def get_member_by_id(
+        self,
+        organization_id: uuid.UUID,
+        member_id: uuid.UUID,
+    ) -> Optional[tuple[OrganizationMember, User]]:
+        """Fetch organization member by ID strictly scoped to organization, joined with user."""
+        stmt = (
+            select(OrganizationMember, User)
+            .join(User, User.id == OrganizationMember.user_id)
+            .where(
+                OrganizationMember.organization_id == organization_id,
+                OrganizationMember.id == member_id,
+            )
+        )
+        result = await self._session.execute(stmt)
+        row = result.first()
+        if row is None:
+            return None
+        return row[0], row[1]
+
+    async def list_members(
+        self,
+        organization_id: uuid.UUID,
+    ) -> Sequence[tuple[OrganizationMember, User]]:
+        """List all members of an organization joined with user identity."""
+        stmt = (
+            select(OrganizationMember, User)
+            .join(User, User.id == OrganizationMember.user_id)
+            .where(OrganizationMember.organization_id == organization_id)
+            .order_by(OrganizationMember.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return result.all()
+
+    async def count_active_owners(
+        self,
+        organization_id: uuid.UUID,
+        for_update: bool = False,
+    ) -> int:
+        """Count active owners of an organization with optional row-level locking."""
+        stmt = select(OrganizationMember).where(
+            OrganizationMember.organization_id == organization_id,
+            OrganizationMember.role == MemberRole.OWNER.value,
+            OrganizationMember.status == MemberStatus.ACTIVE.value,
+        )
+        if for_update:
+            stmt = stmt.with_for_update()
+        result = await self._session.execute(stmt)
+        return len(result.scalars().all())
+
+    async def get_pending_invitation(
+        self,
+        organization_id: uuid.UUID,
+        user_id: uuid.UUID,
+    ) -> Optional[tuple[OrganizationMember, User]]:
+        """Fetch pending invitation for user in organization."""
+        stmt = (
+            select(OrganizationMember, User)
+            .join(User, User.id == OrganizationMember.user_id)
+            .where(
+                OrganizationMember.organization_id == organization_id,
+                OrganizationMember.user_id == user_id,
+                OrganizationMember.status == MemberStatus.INVITED.value,
+            )
+        )
+        result = await self._session.execute(stmt)
+        row = result.first()
+        if row is None:
+            return None
+        return row[0], row[1]

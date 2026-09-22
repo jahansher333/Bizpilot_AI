@@ -1,12 +1,15 @@
-"""Pydantic V2 schemas for organization endpoints (ORG-001)."""
+"""Pydantic V2 schemas for organization endpoints (ORG-001, ORG-002)."""
 
 from __future__ import annotations
 
 import re
 from datetime import datetime
+from typing import Optional
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+
+from app.modules.organizations.enums import MemberRole
 
 
 CURRENCY_CODE_REGEX = re.compile(r"^[A-Z]{3}$")
@@ -83,3 +86,57 @@ class OrganizationResponse(BaseModel):
     status: str = Field(..., description="Organization status.")
     created_at: datetime = Field(..., description="Creation timestamp in UTC.")
     role: str = Field(..., description="Caller's active membership role.")
+
+
+class InviteMemberRequest(BaseModel):
+    """Request payload to invite a registered team member to an organization."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    email: EmailStr = Field(
+        ...,
+        max_length=255,
+        description="Registered user's email address.",
+    )
+    role: MemberRole = Field(
+        default=MemberRole.STAFF,
+        description="Assigned organization member role (owner, manager, staff).",
+    )
+
+
+class UpdateMemberRoleRequest(BaseModel):
+    """Request payload to change an organization member's role."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        str_strip_whitespace=True,
+    )
+
+    role: MemberRole = Field(
+        ...,
+        description="New organization member role (owner, manager, staff).",
+    )
+
+
+class OrganizationMemberResponse(BaseModel):
+    """Safe response payload for organization membership representation."""
+
+    model_config = ConfigDict(
+        extra="forbid",
+        from_attributes=True,
+    )
+
+    id: str = Field(..., description="Membership unique identifier.")
+    organization_id: str = Field(..., description="Organization workspace unique identifier.")
+    user_id: str = Field(..., description="User unique identifier.")
+    role: str = Field(..., description="Member access role.")
+    status: str = Field(..., description="Membership lifecycle status.")
+    invited_by_user_id: Optional[str] = Field(None, description="Inviting user identifier if invited.")
+    created_at: datetime = Field(..., description="Creation timestamp in UTC.")
+    updated_at: datetime = Field(..., description="Last update timestamp in UTC.")
+    revoked_at: Optional[datetime] = Field(None, description="Revocation timestamp in UTC if revoked.")
+    email: str = Field(..., description="Member user's email address.")
+    display_name: str = Field(..., description="Member user's display name.")
