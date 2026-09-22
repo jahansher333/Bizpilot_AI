@@ -142,7 +142,7 @@ def test_alembic_configuration_and_head_revision() -> None:
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1, f"Expected exactly 1 alembic head, got {heads}"
-    assert heads[0] == "0002_auth_identity_credentials"
+    assert heads[0] == "0003_organizations_and_members"
 
 
 @pytest.mark.asyncio
