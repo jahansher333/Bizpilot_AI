@@ -22,6 +22,7 @@ from app.modules.organizations.enums import (
     OrganizationStatus,
 )
 from app.modules.organizations.models import OrganizationMember
+from app.modules.organizations.permissions import Permission, check_permission
 from app.modules.organizations.repository import OrganizationRepository
 from app.modules.organizations.schemas import (
     CreateOrganizationRequest,
@@ -145,8 +146,7 @@ class OrganizationService:
         if member is None or member.status != MemberStatus.ACTIVE.value:
             raise NotFoundException("Organization not found")
 
-        if member.role != MemberRole.OWNER.value:
-            raise AuthorizationException("Only organization owners can perform this action")
+        check_permission(member.role, Permission.ORG_MEMBERS_READ)
 
         return member
 
