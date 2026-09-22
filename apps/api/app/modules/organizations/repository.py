@@ -80,6 +80,7 @@ class OrganizationRepository:
                 Organization.id == organization_id,
                 OrganizationMember.user_id == user_id,
                 OrganizationMember.status == MemberStatus.ACTIVE.value,
+                Organization.status == OrganizationStatus.ACTIVE.value,
             )
         )
         result = await self._session.execute(stmt)
