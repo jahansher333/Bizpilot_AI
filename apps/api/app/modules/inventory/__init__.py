@@ -14,6 +14,7 @@ from app.modules.inventory.schemas import (
     VoidReversalRequest,
 )
 from app.modules.inventory.service import InventoryService
+from app.modules.inventory.transaction import locked_inventory_scope
 
 __all__ = [
     "InventoryBalance",
@@ -22,6 +23,7 @@ __all__ = [
     "MovementSourceType",
     "InventoryRepository",
     "InventoryService",
+    "locked_inventory_scope",
     "OpeningStockRequest",
     "AdjustmentRequest",
     "CorrectionRequest",

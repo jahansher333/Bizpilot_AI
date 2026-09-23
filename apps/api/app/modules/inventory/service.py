@@ -6,6 +6,7 @@ import uuid
 from datetime import datetime, timezone
 from typing import Optional
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import (
@@ -41,8 +42,8 @@ class InventoryService:
 
     Enforces:
     - Same-transaction balance update and append-only movement creation
-    - Negative balance prevention
-    - Row-level locking on balance mutations
+    - Negative balance prevention with row-level locking (SELECT ... FOR UPDATE)
+    - Database and application invariant consistency under concurrency
     - Single opening stock per product invariant
     - Auditability through append-only movements and ORG-006 internal trace events
     """
@@ -80,6 +81,15 @@ class InventoryService:
             )
             if role != MemberRole.OWNER:
                 raise AuthorizationException("Only organization owner can perform void reversals")
+
+    def _handle_integrity_error(self, exc: IntegrityError) -> None:
+        """Map database constraint violations to deterministic domain exceptions."""
+        err_str = str(exc).lower()
+        if "quantity_non_negative" in err_str:
+            raise ValidationException("Insufficient stock on hand: balance cannot be negative") from exc
+        if "org_product" in err_str or "product_id" in err_str or "inventory_balances" in err_str:
+            raise ConflictException("Concurrent inventory mutation conflict for this product") from exc
+        raise exc
 
     async def _get_active_product(self, product_id: uuid.UUID) -> Product:
         """Retrieve product and verify it is active within tenant."""
@@ -189,7 +199,10 @@ class InventoryService:
             created_at=now,
         )
         await self._repository.create_movement(movement)
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
         return (
             InventoryBalanceResponse.model_validate(balance),
@@ -246,7 +259,10 @@ class InventoryService:
             created_at=now,
         )
         await self._repository.create_movement(movement)
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
         return (
             InventoryBalanceResponse.model_validate(balance),
@@ -319,7 +335,10 @@ class InventoryService:
                 "reason": reason_str,
             },
         )
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
         return (
             InventoryBalanceResponse.model_validate(balance),
@@ -391,7 +410,10 @@ class InventoryService:
                 "reason": reason_str,
             },
         )
-        await self._session.flush()
+        try:
+            await self._session.flush()
+        except IntegrityError as exc:
+            self._handle_integrity_error(exc)
 
         return (
             InventoryBalanceResponse.model_validate(balance),
