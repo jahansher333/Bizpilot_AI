@@ -9,6 +9,7 @@ from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.repositories import ScopedRepository
+from app.modules.inventory.enums import MovementType
 from app.modules.inventory.models import InventoryBalance, InventoryMovement
 
 
@@ -40,6 +41,19 @@ class InventoryRepository(ScopedRepository[InventoryBalance]):
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def has_opening_movement(self, product_id: uuid.UUID) -> bool:
+        """Check if an opening movement already exists for this product in tenant."""
+        stmt = (
+            select(func.count(InventoryMovement.id))
+            .where(
+                InventoryMovement.organization_id == self._organization_id,
+                InventoryMovement.product_id == product_id,
+                InventoryMovement.movement_type == MovementType.OPENING.value,
+            )
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one() > 0
 
     async def list_balances(
         self,
