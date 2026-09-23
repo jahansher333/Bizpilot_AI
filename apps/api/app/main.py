@@ -15,11 +15,13 @@ from app.db.engine import dispose_engine
 from app.modules.auth import auth_router
 from app.modules.categories import category_router
 from app.modules.organizations import organization_router
+from app.modules.products import product_router
 
 DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     auth_router,
     organization_router,
     category_router,
+    product_router,
 )
 
 

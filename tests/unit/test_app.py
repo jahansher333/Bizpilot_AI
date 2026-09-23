@@ -32,6 +32,9 @@ def test_router_registry_has_no_business_routes(test_app) -> None:
         "/api/organizations/{organization_id}/categories",
         "/api/organizations/{organization_id}/categories/{category_id}",
         "/api/organizations/{organization_id}/categories/{category_id}/archive",
+        "/api/organizations/{organization_id}/products",
+        "/api/organizations/{organization_id}/products/{product_id}",
+        "/api/organizations/{organization_id}/products/{product_id}/archive",
     }
     assert not any(path.startswith("/api/orders") for path in paths)
     assert not any(path.startswith("/api/products") for path in paths)

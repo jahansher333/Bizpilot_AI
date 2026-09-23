@@ -22,6 +22,7 @@ from app.db.base import Base  # noqa: E402
 import app.modules.auth.models  # noqa: F401, E402
 import app.modules.categories.models  # noqa: F401, E402
 import app.modules.organizations.models  # noqa: F401, E402
+import app.modules.products.models  # noqa: F401, E402
 import app.modules.trace.models  # noqa: F401, E402
 
 
