@@ -13,6 +13,7 @@ from app.modules.inventory.schemas import (
     OpeningStockRequest,
     VoidReversalRequest,
 )
+from app.modules.inventory.router import router as inventory_router
 from app.modules.inventory.service import InventoryService
 from app.modules.inventory.transaction import locked_inventory_scope
 
@@ -32,4 +33,5 @@ __all__ = [
     "InventoryBalanceListResponse",
     "InventoryMovementResponse",
     "InventoryMovementListResponse",
+    "inventory_router",
 ]

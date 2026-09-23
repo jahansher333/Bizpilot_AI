@@ -122,3 +122,12 @@ class InventoryMovementListResponse(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class InventoryMutationResponse(BaseModel):
+    """Response returned by mutating inventory endpoints containing balance and movement."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    balance: InventoryBalanceResponse
+    movement: InventoryMovementResponse
