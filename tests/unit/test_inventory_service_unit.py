@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import AsyncMock
 
 import pytest
 from pydantic import ValidationError
@@ -16,7 +16,7 @@ from app.core.errors import (
     ValidationException,
 )
 from app.modules.inventory.enums import MovementSourceType, MovementType
-from app.modules.inventory.models import InventoryBalance, InventoryMovement
+from app.modules.inventory.models import InventoryBalance
 from app.modules.inventory.schemas import (
     AdjustmentRequest,
     CorrectionRequest,
@@ -27,7 +27,6 @@ from app.modules.inventory.service import InventoryService
 from app.modules.organizations.enums import MemberRole
 from app.modules.products.enums import ProductStatus
 from app.modules.products.models import Product
-from app.modules.trace.enums import TraceAction, TraceOutcome
 
 
 def _create_mock_product(
@@ -98,7 +97,6 @@ async def test_record_opening_stock_success() -> None:
     session = AsyncMock()
     repo = AsyncMock()
     prod_repo = AsyncMock()
-    trace_service = AsyncMock()
 
     prod_repo.get_by_id.return_value = _create_mock_product(product_id, org_id)
     repo.has_opening_movement.return_value = False
@@ -111,7 +109,6 @@ async def test_record_opening_stock_success() -> None:
         actor_role=MemberRole.OWNER,
         repository=repo,
         product_repository=prod_repo,
-        trace_service=trace_service,
     )
 
     req = OpeningStockRequest(product_id=product_id, quantity=100, reason="Initial warehouse stock")
@@ -141,7 +138,6 @@ async def test_record_opening_stock_duplicate_rejected() -> None:
     session = AsyncMock()
     repo = AsyncMock()
     prod_repo = AsyncMock()
-    trace_service = AsyncMock()
 
     prod_repo.get_by_id.return_value = _create_mock_product(product_id, org_id)
     repo.has_opening_movement.return_value = True
@@ -152,7 +148,6 @@ async def test_record_opening_stock_duplicate_rejected() -> None:
         actor_role=MemberRole.MANAGER,
         repository=repo,
         product_repository=prod_repo,
-        trace_service=trace_service,
     )
 
     req = OpeningStockRequest(product_id=product_id, quantity=50)
@@ -287,8 +282,8 @@ async def test_record_adjustment_negative_stock_rejected() -> None:
 
 
 @pytest.mark.asyncio
-async def test_record_correction_emits_trace_event() -> None:
-    """Verify correction updates balance, movement, and calls InternalTraceService."""
+async def test_record_correction_updates_balance_and_movement() -> None:
+    """Verify correction updates balance and records movement evidence."""
     org_id = uuid.uuid4()
     user_id = uuid.uuid4()
     product_id = uuid.uuid4()
@@ -296,7 +291,6 @@ async def test_record_correction_emits_trace_event() -> None:
     session = AsyncMock()
     repo = AsyncMock()
     prod_repo = AsyncMock()
-    trace_service = AsyncMock()
 
     prod_repo.get_by_id.return_value = _create_mock_product(product_id, org_id)
 
@@ -317,7 +311,6 @@ async def test_record_correction_emits_trace_event() -> None:
         actor_role=MemberRole.OWNER,
         repository=repo,
         product_repository=prod_repo,
-        trace_service=trace_service,
     )
 
     req = CorrectionRequest(product_id=product_id, quantity_delta=2, reason="Cycle count correction")
@@ -326,26 +319,14 @@ async def test_record_correction_emits_trace_event() -> None:
     assert bal.on_hand_quantity == 12
     assert mov.movement_type == MovementType.CORRECTION.value
     assert mov.quantity_delta == 2
-
-    trace_service.record_event.assert_awaited_once_with(
-        action=TraceAction.FINANCE_RECORD_CORRECTED,
-        outcome=TraceOutcome.SUCCESS,
-        actor_user_id=user_id,
-        target_type="inventory_movement",
-        target_id=mov.id,
-        metadata={
-            "product_id": str(product_id),
-            "quantity_delta": 2,
-            "previous_quantity": 10,
-            "new_quantity": 12,
-            "reason": "Cycle count correction",
-        },
-    )
+    assert mov.reason == "Cycle count correction"
+    repo.create_movement.assert_awaited_once()
+    session.flush.assert_awaited_once()
 
 
 @pytest.mark.asyncio
-async def test_record_void_reversal_permissions_and_trace() -> None:
-    """Verify Manager/Staff cannot void, but Owner can and emits trace."""
+async def test_record_void_reversal_permissions_and_stock_mutation() -> None:
+    """Verify Manager/Staff cannot void, but Owner can and updates stock."""
     org_id = uuid.uuid4()
     user_id = uuid.uuid4()
     product_id = uuid.uuid4()
@@ -353,7 +334,6 @@ async def test_record_void_reversal_permissions_and_trace() -> None:
     session = AsyncMock()
     repo = AsyncMock()
     prod_repo = AsyncMock()
-    trace_service = AsyncMock()
 
     prod_repo.get_by_id.return_value = _create_mock_product(product_id, org_id)
 
@@ -388,25 +368,11 @@ async def test_record_void_reversal_permissions_and_trace() -> None:
         actor_role=MemberRole.OWNER,
         repository=repo,
         product_repository=prod_repo,
-        trace_service=trace_service,
     )
 
     bal, mov = await owner_service.record_void_reversal(req)
     assert bal.on_hand_quantity == 15
     assert mov.movement_type == MovementType.VOID_REVERSAL.value
-
-    trace_service.record_event.assert_awaited_once_with(
-        action=TraceAction.FINANCE_RECORD_VOIDED,
-        outcome=TraceOutcome.SUCCESS,
-        actor_user_id=user_id,
-        target_type="inventory_movement",
-        target_id=mov.id,
-        metadata={
-            "product_id": str(product_id),
-            "quantity_delta": 5,
-            "previous_quantity": 10,
-            "new_quantity": 15,
-            "source_id": None,
-            "reason": "Reversal of mistaken writeoff",
-        },
-    )
+    assert mov.quantity_delta == 5
+    repo.create_movement.assert_awaited_once()
+    session.flush.assert_awaited_once()

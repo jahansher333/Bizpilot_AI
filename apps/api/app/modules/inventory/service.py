@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from datetime import datetime, timezone
-from typing import Optional
+from typing import Any, Optional
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -33,8 +33,6 @@ from app.modules.organizations.permissions import Permission, check_permission
 from app.modules.products.enums import ProductStatus
 from app.modules.products.models import Product
 from app.modules.products.repository import ProductRepository
-from app.modules.trace.enums import TraceAction, TraceOutcome
-from app.modules.trace.service import InternalTraceService
 
 
 class InventoryService:
@@ -45,7 +43,7 @@ class InventoryService:
     - Negative balance prevention with row-level locking (SELECT ... FOR UPDATE)
     - Database and application invariant consistency under concurrency
     - Single opening stock per product invariant
-    - Auditability through append-only movements and ORG-006 internal trace events
+    - Auditability through append-only movements
     """
 
     def __init__(
@@ -56,7 +54,7 @@ class InventoryService:
         actor_role: Optional[MemberRole | str] = None,
         repository: Optional[InventoryRepository] = None,
         product_repository: Optional[ProductRepository] = None,
-        trace_service: Optional[InternalTraceService] = None,
+        trace_service: Optional[Any] = None,
     ) -> None:
         self._session = session
         self._organization_id = organization_id
@@ -64,7 +62,6 @@ class InventoryService:
         self._actor_role = actor_role
         self._repository = repository or InventoryRepository(session, organization_id)
         self._product_repository = product_repository or ProductRepository(session, organization_id)
-        self._trace_service = trace_service or InternalTraceService(session, organization_id)
 
     def _check_permission(self, permission: Permission) -> None:
         """Enforce operation-level permission if actor role is bound."""
@@ -170,36 +167,36 @@ class InventoryService:
             raise ConflictException("Opening stock has already been recorded for this product")
 
         now = datetime.now(timezone.utc)
-        if balance is None:
-            balance = InventoryBalance(
+        try:
+            if balance is None:
+                balance = InventoryBalance(
+                    id=uuid.uuid4(),
+                    organization_id=self._organization_id,
+                    product_id=request.product_id,
+                    on_hand_quantity=request.quantity,
+                    version=1,
+                    updated_at=now,
+                )
+                await self._repository.create_balance(balance)
+            else:
+                balance.on_hand_quantity = request.quantity
+                balance.version += 1
+                balance.updated_at = now
+
+            reason_str = request.reason.strip() if request.reason and request.reason.strip() else "Opening stock"
+            movement = InventoryMovement(
                 id=uuid.uuid4(),
                 organization_id=self._organization_id,
                 product_id=request.product_id,
-                on_hand_quantity=request.quantity,
-                version=1,
-                updated_at=now,
+                movement_type=MovementType.OPENING.value,
+                quantity_delta=request.quantity,
+                source_type=MovementSourceType.OPENING.value,
+                source_id=None,
+                reason=reason_str,
+                created_by_user_id=self._actor_user_id,
+                created_at=now,
             )
-            await self._repository.create_balance(balance)
-        else:
-            balance.on_hand_quantity = request.quantity
-            balance.version += 1
-            balance.updated_at = now
-
-        reason_str = request.reason.strip() if request.reason and request.reason.strip() else "Opening stock"
-        movement = InventoryMovement(
-            id=uuid.uuid4(),
-            organization_id=self._organization_id,
-            product_id=request.product_id,
-            movement_type=MovementType.OPENING.value,
-            quantity_delta=request.quantity,
-            source_type=MovementSourceType.OPENING.value,
-            source_id=None,
-            reason=reason_str,
-            created_by_user_id=self._actor_user_id,
-            created_at=now,
-        )
-        await self._repository.create_movement(movement)
-        try:
+            await self._repository.create_movement(movement)
             await self._session.flush()
         except IntegrityError as exc:
             self._handle_integrity_error(exc)
@@ -231,35 +228,35 @@ class InventoryService:
             )
 
         now = datetime.now(timezone.utc)
-        if balance is None:
-            balance = InventoryBalance(
+        try:
+            if balance is None:
+                balance = InventoryBalance(
+                    id=uuid.uuid4(),
+                    organization_id=self._organization_id,
+                    product_id=request.product_id,
+                    on_hand_quantity=new_qty,
+                    version=1,
+                    updated_at=now,
+                )
+                await self._repository.create_balance(balance)
+            else:
+                balance.on_hand_quantity = new_qty
+                balance.version += 1
+                balance.updated_at = now
+
+            movement = InventoryMovement(
                 id=uuid.uuid4(),
                 organization_id=self._organization_id,
                 product_id=request.product_id,
-                on_hand_quantity=new_qty,
-                version=1,
-                updated_at=now,
+                movement_type=MovementType.ADJUSTMENT.value,
+                quantity_delta=request.quantity_delta,
+                source_type=MovementSourceType.ADJUSTMENT.value,
+                source_id=None,
+                reason=reason_str,
+                created_by_user_id=self._actor_user_id,
+                created_at=now,
             )
-            await self._repository.create_balance(balance)
-        else:
-            balance.on_hand_quantity = new_qty
-            balance.version += 1
-            balance.updated_at = now
-
-        movement = InventoryMovement(
-            id=uuid.uuid4(),
-            organization_id=self._organization_id,
-            product_id=request.product_id,
-            movement_type=MovementType.ADJUSTMENT.value,
-            quantity_delta=request.quantity_delta,
-            source_type=MovementSourceType.ADJUSTMENT.value,
-            source_id=None,
-            reason=reason_str,
-            created_by_user_id=self._actor_user_id,
-            created_at=now,
-        )
-        await self._repository.create_movement(movement)
-        try:
+            await self._repository.create_movement(movement)
             await self._session.flush()
         except IntegrityError as exc:
             self._handle_integrity_error(exc)
@@ -272,7 +269,7 @@ class InventoryService:
     async def record_correction(
         self, request: CorrectionRequest
     ) -> tuple[InventoryBalanceResponse, InventoryMovementResponse]:
-        """Record an inventory correction, emitting an internal trace event."""
+        """Record an inventory correction with required reason."""
         self._check_permission(Permission.INVENTORY_ADJUST)
         await self._get_active_product(request.product_id)
 
@@ -291,51 +288,35 @@ class InventoryService:
             )
 
         now = datetime.now(timezone.utc)
-        if balance is None:
-            balance = InventoryBalance(
+        try:
+            if balance is None:
+                balance = InventoryBalance(
+                    id=uuid.uuid4(),
+                    organization_id=self._organization_id,
+                    product_id=request.product_id,
+                    on_hand_quantity=new_qty,
+                    version=1,
+                    updated_at=now,
+                )
+                await self._repository.create_balance(balance)
+            else:
+                balance.on_hand_quantity = new_qty
+                balance.version += 1
+                balance.updated_at = now
+
+            movement = InventoryMovement(
                 id=uuid.uuid4(),
                 organization_id=self._organization_id,
                 product_id=request.product_id,
-                on_hand_quantity=new_qty,
-                version=1,
-                updated_at=now,
+                movement_type=MovementType.CORRECTION.value,
+                quantity_delta=request.quantity_delta,
+                source_type=MovementSourceType.CORRECTION.value,
+                source_id=None,
+                reason=reason_str,
+                created_by_user_id=self._actor_user_id,
+                created_at=now,
             )
-            await self._repository.create_balance(balance)
-        else:
-            balance.on_hand_quantity = new_qty
-            balance.version += 1
-            balance.updated_at = now
-
-        movement = InventoryMovement(
-            id=uuid.uuid4(),
-            organization_id=self._organization_id,
-            product_id=request.product_id,
-            movement_type=MovementType.CORRECTION.value,
-            quantity_delta=request.quantity_delta,
-            source_type=MovementSourceType.CORRECTION.value,
-            source_id=None,
-            reason=reason_str,
-            created_by_user_id=self._actor_user_id,
-            created_at=now,
-        )
-        await self._repository.create_movement(movement)
-
-        # ORG-006 internal trace event emission
-        await self._trace_service.record_event(
-            action=TraceAction.FINANCE_RECORD_CORRECTED,
-            outcome=TraceOutcome.SUCCESS,
-            actor_user_id=self._actor_user_id,
-            target_type="inventory_movement",
-            target_id=movement.id,
-            metadata={
-                "product_id": str(request.product_id),
-                "quantity_delta": request.quantity_delta,
-                "previous_quantity": current_qty,
-                "new_quantity": new_qty,
-                "reason": reason_str,
-            },
-        )
-        try:
+            await self._repository.create_movement(movement)
             await self._session.flush()
         except IntegrityError as exc:
             self._handle_integrity_error(exc)
@@ -348,7 +329,7 @@ class InventoryService:
     async def record_void_reversal(
         self, request: VoidReversalRequest
     ) -> tuple[InventoryBalanceResponse, InventoryMovementResponse]:
-        """Record an inventory void reversal, strictly authorized to Owner, emitting trace."""
+        """Record an inventory void reversal, strictly authorized to Owner."""
         self._check_void_permission()
         await self._get_active_product(request.product_id)
 
@@ -365,52 +346,35 @@ class InventoryService:
             )
 
         now = datetime.now(timezone.utc)
-        if balance is None:
-            balance = InventoryBalance(
+        try:
+            if balance is None:
+                balance = InventoryBalance(
+                    id=uuid.uuid4(),
+                    organization_id=self._organization_id,
+                    product_id=request.product_id,
+                    on_hand_quantity=new_qty,
+                    version=1,
+                    updated_at=now,
+                )
+                await self._repository.create_balance(balance)
+            else:
+                balance.on_hand_quantity = new_qty
+                balance.version += 1
+                balance.updated_at = now
+
+            movement = InventoryMovement(
                 id=uuid.uuid4(),
                 organization_id=self._organization_id,
                 product_id=request.product_id,
-                on_hand_quantity=new_qty,
-                version=1,
-                updated_at=now,
+                movement_type=MovementType.VOID_REVERSAL.value,
+                quantity_delta=request.quantity_delta,
+                source_type=MovementSourceType.VOID_REVERSAL.value,
+                source_id=request.source_id,
+                reason=reason_str,
+                created_by_user_id=self._actor_user_id,
+                created_at=now,
             )
-            await self._repository.create_balance(balance)
-        else:
-            balance.on_hand_quantity = new_qty
-            balance.version += 1
-            balance.updated_at = now
-
-        movement = InventoryMovement(
-            id=uuid.uuid4(),
-            organization_id=self._organization_id,
-            product_id=request.product_id,
-            movement_type=MovementType.VOID_REVERSAL.value,
-            quantity_delta=request.quantity_delta,
-            source_type=MovementSourceType.VOID_REVERSAL.value,
-            source_id=request.source_id,
-            reason=reason_str,
-            created_by_user_id=self._actor_user_id,
-            created_at=now,
-        )
-        await self._repository.create_movement(movement)
-
-        # ORG-006 internal trace event emission
-        await self._trace_service.record_event(
-            action=TraceAction.FINANCE_RECORD_VOIDED,
-            outcome=TraceOutcome.SUCCESS,
-            actor_user_id=self._actor_user_id,
-            target_type="inventory_movement",
-            target_id=movement.id,
-            metadata={
-                "product_id": str(request.product_id),
-                "quantity_delta": request.quantity_delta,
-                "previous_quantity": current_qty,
-                "new_quantity": new_qty,
-                "source_id": str(request.source_id) if request.source_id else None,
-                "reason": reason_str,
-            },
-        )
-        try:
+            await self._repository.create_movement(movement)
             await self._session.flush()
         except IntegrityError as exc:
             self._handle_integrity_error(exc)

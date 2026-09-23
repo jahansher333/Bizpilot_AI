@@ -20,8 +20,7 @@ from app.modules.inventory.service import InventoryService
 from app.modules.organizations.enums import MemberRole
 from app.modules.organizations.models import Organization
 from app.modules.products.models import Product
-from app.modules.trace.enums import TraceAction
-from app.modules.trace.models import InternalTraceEvent
+
 
 
 async def _create_test_org(db_session: AsyncSession, name: str = "Movement Org") -> Organization:
@@ -149,10 +148,10 @@ async def test_adjustments_and_negative_stock_rejection(db_session: AsyncSession
 
 
 @pytest.mark.asyncio
-async def test_correction_and_void_reversal_with_trace_persistence(db_session: AsyncSession) -> None:
-    """Verify correction and void reversal mutate stock and persist internal trace events in DB."""
-    org = await _create_test_org(db_session, "Trace Org")
-    prod = await _create_test_product(db_session, org.id, "PROD-TRACE-01")
+async def test_correction_and_void_reversal_lifecycle(db_session: AsyncSession) -> None:
+    """Verify correction and void reversal mutate stock and persist movement records in DB."""
+    org = await _create_test_org(db_session, "Movement Lifecycle Org")
+    prod = await _create_test_product(db_session, org.id, "PROD-MOV-01")
 
     service = InventoryService(
         session=db_session,
@@ -172,19 +171,13 @@ async def test_correction_and_void_reversal_with_trace_persistence(db_session: A
     assert bal_corr.on_hand_quantity == 20
     assert mov_corr.movement_type == MovementType.CORRECTION.value
 
-    # Verify trace event for correction
-    corr_trace = await db_session.scalar(
-        select(InternalTraceEvent).where(
-            InternalTraceEvent.organization_id == org.id,
-            InternalTraceEvent.action == TraceAction.FINANCE_RECORD_CORRECTED.value,
-            InternalTraceEvent.target_id == mov_corr.id,
-        )
+    # Verify correction movement in database
+    corr_row = await db_session.scalar(
+        select(InventoryMovement).where(InventoryMovement.id == mov_corr.id)
     )
-    assert corr_trace is not None
-    assert corr_trace.outcome == "success"
-    assert corr_trace.event_metadata["quantity_delta"] == -5
-    assert corr_trace.event_metadata["previous_quantity"] == 25
-    assert corr_trace.event_metadata["new_quantity"] == 20
+    assert corr_row is not None
+    assert corr_row.quantity_delta == -5
+    assert corr_row.reason == "Count variance correction"
 
     # Record void reversal: +10
     bal_void, mov_void = await service.record_void_reversal(
@@ -197,20 +190,16 @@ async def test_correction_and_void_reversal_with_trace_persistence(db_session: A
     )
     assert bal_void.on_hand_quantity == 30
     assert mov_void.movement_type == MovementType.VOID_REVERSAL.value
+    assert mov_void.source_id == mov_corr.id
 
-    # Verify trace event for void reversal
-    void_trace = await db_session.scalar(
-        select(InternalTraceEvent).where(
-            InternalTraceEvent.organization_id == org.id,
-            InternalTraceEvent.action == TraceAction.FINANCE_RECORD_VOIDED.value,
-            InternalTraceEvent.target_id == mov_void.id,
-        )
+    # Verify void reversal movement in database
+    void_row = await db_session.scalar(
+        select(InventoryMovement).where(InventoryMovement.id == mov_void.id)
     )
-    assert void_trace is not None
-    assert void_trace.outcome == "success"
-    assert void_trace.event_metadata["quantity_delta"] == 10
-    assert void_trace.event_metadata["previous_quantity"] == 20
-    assert void_trace.event_metadata["new_quantity"] == 30
+    assert void_row is not None
+    assert void_row.quantity_delta == 10
+    assert void_row.source_id == mov_corr.id
+    assert void_row.reason == "Reversed previous correction"
 
 
 @pytest.mark.asyncio
