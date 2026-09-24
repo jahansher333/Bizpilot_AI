@@ -18,6 +18,7 @@ from app.core.errors import (
 )
 from app.modules.customers.enums import CustomerStatus
 from app.modules.customers.repository import CustomerRepository
+from app.modules.idempotency.service import IdempotencyService, compute_request_hash
 from app.modules.inventory.enums import MovementSourceType, MovementType
 from app.modules.inventory.models import InventoryBalance, InventoryMovement
 from app.modules.inventory.repository import InventoryRepository
@@ -51,6 +52,7 @@ class OrderService:
         inventory_repository: Optional[InventoryRepository] = None,
         product_repository: Optional[ProductRepository] = None,
         customer_repository: Optional[CustomerRepository] = None,
+        idempotency_service: Optional[IdempotencyService] = None,
     ) -> None:
         self._session = session
         self._organization_id = organization_id
@@ -60,6 +62,7 @@ class OrderService:
         self._inventory_repository = inventory_repository or InventoryRepository(session, organization_id)
         self._product_repository = product_repository or ProductRepository(session, organization_id)
         self._customer_repository = customer_repository or CustomerRepository(session, organization_id)
+        self._idempotency_service = idempotency_service or IdempotencyService(session)
 
     def _check_permission(self, permission: Permission) -> None:
         """Enforce operation-level permission if actor role is bound."""
@@ -73,7 +76,10 @@ class OrderService:
             raise ValidationException("Insufficient stock on hand: balance cannot be negative") from exc
         if "uq_orders_org_order_number" in err_str:
             raise ConflictException("Duplicate order number conflict") from exc
+        if "uq_idempotency_keys_org_user_op_key" in err_str:
+            raise ConflictException("Concurrent request with the same idempotency key in progress") from exc
         raise exc
+
 
     async def get_order(self, order_id: uuid.UUID) -> OrderResponseSchema:
         """Retrieve a specific order by ID with loaded line items."""
@@ -105,9 +111,34 @@ class OrderService:
             offset=offset,
         )
 
-    async def create_order(self, data: OrderCreateSchema) -> OrderResponseSchema:
-        """Atomically validate stock, decrement inventory balances, record movements, and create order."""
+    async def create_order(
+        self,
+        data: OrderCreateSchema,
+        idempotency_key: Optional[str] = None,
+        idempotency_expires_at: Optional[datetime] = None,
+    ) -> OrderResponseSchema:
+        """Atomically validate stock, decrement inventory balances, record movements, and create order.
+
+        Supports optional idempotency key to prevent duplicate sales and stock deductions upon retry.
+        """
         self._check_permission(Permission.ORDERS_CREATE)
+
+        clean_key = idempotency_key.strip() if idempotency_key and idempotency_key.strip() else None
+        req_hash = None
+        if clean_key:
+            if self._actor_user_id is None:
+                raise ValidationException("Actor user ID is required when using an idempotency key")
+            req_hash = compute_request_hash(data)
+            cached = await self._idempotency_service.get_stored_response(
+                organization_id=self._organization_id,
+                user_id=self._actor_user_id,
+                operation="order:create",
+                idempotency_key=clean_key,
+                request_hash=req_hash,
+            )
+            if cached is not None:
+                _, payload_str = cached
+                return OrderResponseSchema.model_validate_json(payload_str)
 
         if not data.items:
             raise ValidationException("Order must contain at least one line item")
@@ -218,11 +249,28 @@ class OrderService:
 
                 await self._session.flush()
 
-            # Reload full order with items
-            created_order = await self._repository.get_order_with_items(order_id)
-            return OrderResponseSchema.model_validate(created_order)
+                # Reload full order with items inside savepoint
+                created_order = await self._repository.get_order_with_items(order_id)
+                order_response = OrderResponseSchema.model_validate(created_order)
+
+                # Atomically persist idempotency response record if requested
+                if clean_key and req_hash and self._actor_user_id:
+                    await self._idempotency_service.record_response(
+                        organization_id=self._organization_id,
+                        user_id=self._actor_user_id,
+                        operation="order:create",
+                        idempotency_key=clean_key,
+                        request_hash=req_hash,
+                        response_code=201,
+                        response_payload=order_response.model_dump_json(),
+                        expires_at=idempotency_expires_at,
+                    )
+                    await self._session.flush()
+
+            return order_response
 
         except IntegrityError as exc:
             self._handle_integrity_error(exc)
             raise
+
 

@@ -5,7 +5,8 @@ from __future__ import annotations
 import hashlib
 import json
 import uuid
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Optional
 
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -49,9 +50,9 @@ class IdempotencyService:
     ) -> tuple[int, str] | None:
         """Check for existing idempotency key.
 
-        Returns (response_code, response_payload) if an identical request was already processed.
+        Returns (response_code, response_payload) if an identical request was already processed and active.
         Raises ConflictException if key was reused with different request content.
-        Returns None if key has not been used.
+        Returns None if key has not been used or has expired.
         """
         stmt = select(IdempotencyKey).where(
             IdempotencyKey.organization_id == organization_id,
@@ -61,6 +62,11 @@ class IdempotencyService:
         )
         record = await self._session.scalar(stmt)
         if record is None:
+            return None
+
+        # Check expiration
+        now = datetime.now(timezone.utc)
+        if record.expires_at is not None and record.expires_at <= now:
             return None
 
         if record.request_hash != request_hash:
@@ -79,6 +85,7 @@ class IdempotencyService:
         request_hash: str,
         response_code: int,
         response_payload: str,
+        expires_at: Optional[datetime] = None,
     ) -> IdempotencyKey:
         """Persist a completed idempotency record."""
         record = IdempotencyKey(
@@ -91,6 +98,8 @@ class IdempotencyService:
             status="completed",
             response_code=response_code,
             response_payload=response_payload,
+            expires_at=expires_at,
         )
         self._session.add(record)
         return record
+
