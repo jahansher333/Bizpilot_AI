@@ -13,6 +13,7 @@ from sqlalchemy.orm import selectinload
 from app.db.repositories import ScopedRepository
 from app.modules.orders.enums import OrderStatus
 from app.modules.orders.models import Order, OrderItem
+from app.modules.organizations.models import Organization
 
 
 class OrderRepository(ScopedRepository[Order]):
@@ -24,7 +25,15 @@ class OrderRepository(ScopedRepository[Order]):
         super().__init__(session, organization_id, Order)
 
     async def generate_next_order_number(self) -> str:
-        """Generate a tenant-scoped deterministic next order number, e.g. ORD-0001."""
+        """Generate a tenant-scoped deterministic next order number, e.g. ORD-0001.
+
+        Serializes generation per organization to prevent concurrency collisions.
+        """
+        await self._session.execute(
+            select(Organization.id)
+            .where(Organization.id == self._organization_id)
+            .with_for_update()
+        )
         count_stmt = select(func.count(Order.id)).where(Order.organization_id == self._organization_id)
         res = await self._session.execute(count_stmt)
         count = res.scalar_one()
@@ -41,6 +50,7 @@ class OrderRepository(ScopedRepository[Order]):
             if exists_res.scalar_one_or_none() is None:
                 return candidate
             seq += 1
+
 
     async def get_by_order_number(self, order_number: str) -> Optional[Order]:
         """Fetch order matching order_number within bound tenant."""
