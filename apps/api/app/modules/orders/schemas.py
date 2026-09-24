@@ -35,7 +35,33 @@ class OrderCreateSchema(BaseModel):
         return v.strip().upper()
 
 
+class OrderVoidRequestSchema(BaseModel):
+    """Payload to void an active order."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(..., min_length=3, max_length=255, description="Mandatory reason for voiding order")
+
+
+class OrderCorrectRequestSchema(BaseModel):
+    """Payload to correct an active order with replacement details."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(..., min_length=3, max_length=255, description="Mandatory reason for correcting order")
+    customer_id: uuid.UUID | None = Field(default=None, description="Optional customer ID")
+    items: Sequence[OrderItemCreateSchema] = Field(..., min_length=1, description="Replacement line items")
+    currency_code: str = Field(default="PKR", min_length=3, max_length=3)
+    ordered_at: datetime | None = Field(default=None, description="Optional sale timestamp")
+
+    @field_validator("currency_code")
+    @classmethod
+    def validate_currency(cls, v: str) -> str:
+        return v.strip().upper()
+
+
 class OrderItemResponseSchema(BaseModel):
+
     """Order item with frozen snapshots."""
 
     model_config = ConfigDict(from_attributes=True)
