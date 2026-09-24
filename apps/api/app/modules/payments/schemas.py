@@ -1,4 +1,4 @@
-"""Pydantic schemas for Payments domain (PAY-001)."""
+"""Pydantic schemas for Payments domain (PAY-001, PAY-003, PAY-004)."""
 
 from __future__ import annotations
 
@@ -30,6 +30,25 @@ class PaymentCreate(PaymentBase):
     received_at: Optional[datetime] = None
 
 
+class PaymentVoidRequest(BaseModel):
+    """Request schema to void a recorded payment."""
+
+    reason: str = Field(min_length=1, max_length=500, description="Mandatory reason for voiding payment receipt")
+
+
+class PaymentCorrectionRequest(BaseModel):
+    """Request schema to correct a recorded payment."""
+
+    amount_minor: Optional[int] = Field(default=None, gt=0, description="New amount in integer minor units")
+    channel: Optional[PaymentChannel] = None
+    customer_id: Optional[uuid.UUID] = None
+    order_id: Optional[uuid.UUID] = None
+    account_label: Optional[str] = Field(default=None, max_length=128)
+    external_reference: Optional[str] = Field(default=None, max_length=128)
+    notes: Optional[str] = Field(default=None, max_length=2000)
+    reason: str = Field(min_length=1, max_length=500, description="Mandatory explanation of the correction")
+
+
 class PaymentResponse(PaymentBase):
     """Response schema for a recorded payment receipt."""
 
@@ -47,3 +66,12 @@ class PaymentResponse(PaymentBase):
     voided_at: Optional[datetime] = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaymentListResponse(BaseModel):
+    """Paginated list of payments."""
+
+    items: list[PaymentResponse]
+    total: int
+    limit: int
+    offset: int
