@@ -14,6 +14,7 @@ from app.core.middleware import CorrelationMiddleware
 from app.db.engine import dispose_engine
 from app.modules.auth import auth_router
 from app.modules.categories import category_router
+from app.modules.customers import customer_router
 from app.modules.inventory import inventory_router
 from app.modules.organizations import organization_router
 from app.modules.products import product_router
@@ -24,6 +25,7 @@ DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     category_router,
     product_router,
     inventory_router,
+    customer_router,
 )
 
 

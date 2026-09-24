@@ -35,8 +35,9 @@ def test_phone_normalization() -> None:
     assert normalize_phone("   ") is None
     assert normalize_phone("0300 1234567") == "03001234567"
     assert normalize_phone("0300-123-4567") == "03001234567"
-    assert normalize_phone("+92 (300) 123-4567") == "+923001234567"
-    assert normalize_phone(" +92 300.123.4567 ") == "+923001234567"
+    assert normalize_phone("+92 (300) 123-4567") == "03001234567"
+    assert normalize_phone(" +92 300.123.4567 ") == "03001234567"
+    assert normalize_phone("0092 300 1234567") == "03001234567"
 
 
 def test_customer_create_schema_validations() -> None:
@@ -63,7 +64,7 @@ def test_customer_update_schema_validations() -> None:
         phone="+92 300 9876543",
     )
     assert update.name == "Tariq Ahmed"
-    assert update.phone == "+923009876543"
+    assert update.phone == "03009876543"
 
     with pytest.raises(ValidationError):
         CustomerUpdateSchema(name="  ")

@@ -11,7 +11,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 def normalize_phone(value: str | None) -> str | None:
-    """Normalize phone string: strip whitespace, hyphens, parentheses. Return None if empty."""
+    """Normalize phone string: strip whitespace, hyphens, parentheses, and unify +92/0092 to 0."""
     if value is None:
         return None
     val = value.strip()
@@ -19,7 +19,14 @@ def normalize_phone(value: str | None) -> str | None:
         return None
     # Remove separators: spaces, hyphens, parens, dots
     cleaned = re.sub(r"[\s\-\(\)\.]", "", val)
-    return cleaned if cleaned else None
+    if not cleaned:
+        return None
+    # Standardize Pakistani country codes to local national prefix (03XXXXXXXXX)
+    if cleaned.startswith("+92"):
+        cleaned = "0" + cleaned[3:]
+    elif cleaned.startswith("0092"):
+        cleaned = "0" + cleaned[4:]
+    return cleaned
 
 
 class CustomerCreateSchema(BaseModel):
