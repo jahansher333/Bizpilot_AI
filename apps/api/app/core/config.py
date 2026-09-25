@@ -61,6 +61,9 @@ class AISettings(BaseModel):
     enabled: bool = False
     api_key: SecretStr | None = None
     model: str | None = None
+    timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0)
+    max_tool_calls: int = Field(default=5, ge=1, le=20)
+    log_raw_prompts: bool = Field(default=False)
 
     @model_validator(mode="after")
     def validate_enabled(self) -> "AISettings":
