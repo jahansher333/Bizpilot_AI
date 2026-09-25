@@ -17,6 +17,7 @@ from app.modules.categories import category_router
 from app.modules.customers import customer_router
 from app.modules.inventory import inventory_router
 from app.modules.orders import order_router
+from app.modules.payments import payment_router
 from app.modules.organizations import organization_router
 from app.modules.products import product_router
 
@@ -28,6 +29,7 @@ DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     inventory_router,
     customer_router,
     order_router,
+    payment_router,
 )
 
 

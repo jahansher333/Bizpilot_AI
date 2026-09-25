@@ -1,8 +1,9 @@
-"""Payments module exports (PAY-001, PAY-002, PAY-003)."""
+"""Payments module exports (PAY-001, PAY-002, PAY-003, PAY-004)."""
 
 from app.modules.payments.enums import PaymentChannel, PaymentStatus
 from app.modules.payments.models import Payment
 from app.modules.payments.repository import PaymentRepository
+from app.modules.payments.router import router as payment_router
 from app.modules.payments.schemas import (
     PaymentBase,
     PaymentCorrectionRequest,
@@ -25,4 +26,5 @@ __all__ = [
     "PaymentVoidRequest",
     "PaymentCorrectionRequest",
     "PaymentService",
+    "payment_router",
 ]
