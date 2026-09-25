@@ -1,0 +1,69 @@
+import { DashboardSummary } from "@/lib/schemas/dashboard";
+
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+export class ApiError extends Error {
+  constructor(public status: number, message: string) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+async function request<T>(
+  endpoint: string,
+  options: RequestInit = {},
+  token?: string
+): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    ...(options.headers as Record<string, string>),
+  };
+
+  if (token) {
+    headers["Authorization"] = `Bearer ${token}`;
+  }
+
+  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    ...options,
+    headers,
+  });
+
+  if (!response.ok) {
+    let errorMessage = "An error occurred";
+    try {
+      const errorData = await response.json();
+      errorMessage = errorData.detail || errorData.message || errorMessage;
+    } catch {
+      errorMessage = response.statusText || errorMessage;
+    }
+    throw new ApiError(response.status, errorMessage);
+  }
+
+  return response.json();
+}
+
+export async function getDashboard(
+  orgId: string,
+  params?: {
+    period?: string;
+    startDate?: string;
+    endDate?: string;
+    lowStockThreshold?: number;
+  },
+  token?: string
+): Promise<DashboardSummary> {
+  const searchParams = new URLSearchParams();
+  if (params?.period) searchParams.set("period", params.period);
+  if (params?.startDate) searchParams.set("start_date", params.startDate);
+  if (params?.endDate) searchParams.set("end_date", params.endDate);
+  if (params?.lowStockThreshold !== undefined) {
+    searchParams.set("low_stock_threshold", params.lowStockThreshold.toString());
+  }
+
+  const query = searchParams.toString() ? `?${searchParams.toString()}` : "";
+  return request<DashboardSummary>(
+    `/api/organizations/${orgId}/dashboard${query}`,
+    { method: "GET" },
+    token
+  );
+}
