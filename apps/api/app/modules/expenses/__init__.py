@@ -1,4 +1,4 @@
-"""Expenses module (EXP-001)."""
+"""Expenses module (EXP-001, EXP-002)."""
 
 from app.modules.expenses.enums import (
     ExpenseCategoryStatus,
@@ -19,6 +19,7 @@ from app.modules.expenses.schemas import (
     ExpenseResponseDTO,
     ExpenseVoidDTO,
 )
+from app.modules.expenses.service import ExpenseService
 
 __all__ = [
     "ExpenseCategoryStatus",
@@ -28,6 +29,7 @@ __all__ = [
     "Expense",
     "ExpenseCategoryRepository",
     "ExpenseRepository",
+    "ExpenseService",
     "ExpenseCategoryCreateDTO",
     "ExpenseCategoryUpdateDTO",
     "ExpenseCategoryResponseDTO",
