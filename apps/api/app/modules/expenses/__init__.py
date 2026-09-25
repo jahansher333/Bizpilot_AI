@@ -1,4 +1,4 @@
-"""Expenses module (EXP-001, EXP-002)."""
+"""Expenses module (EXP-001, EXP-002, EXP-003)."""
 
 from app.modules.expenses.enums import (
     ExpenseCategoryStatus,
@@ -7,6 +7,8 @@ from app.modules.expenses.enums import (
 )
 from app.modules.expenses.models import Expense, ExpenseCategory
 from app.modules.expenses.repository import ExpenseCategoryRepository, ExpenseRepository
+from app.modules.expenses.router import category_router as expense_category_router
+from app.modules.expenses.router import expense_router
 from app.modules.expenses.schemas import (
     DailyExpenseTotalDTO,
     ExpenseCategoryCreateDTO,
@@ -30,6 +32,8 @@ __all__ = [
     "ExpenseCategoryRepository",
     "ExpenseRepository",
     "ExpenseService",
+    "expense_router",
+    "expense_category_router",
     "ExpenseCategoryCreateDTO",
     "ExpenseCategoryUpdateDTO",
     "ExpenseCategoryResponseDTO",
