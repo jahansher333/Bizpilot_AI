@@ -15,6 +15,7 @@ from app.db.engine import dispose_engine
 from app.modules.auth import auth_router
 from app.modules.categories import category_router
 from app.modules.customers import customer_router
+from app.modules.dashboard import dashboard_router
 from app.modules.expenses import expense_category_router, expense_router
 from app.modules.inventory import inventory_router
 from app.modules.orders import order_router
@@ -33,6 +34,7 @@ DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     payment_router,
     expense_category_router,
     expense_router,
+    dashboard_router,
 )
 
 

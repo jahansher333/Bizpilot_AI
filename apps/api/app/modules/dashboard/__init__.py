@@ -1,5 +1,6 @@
 """Dashboard module for deterministic operational metrics (DASH-001)."""
 
+from app.modules.dashboard.router import dashboard_router
 from app.modules.dashboard.schemas import (
     DashboardFreshnessDTO,
     DashboardSummaryDTO,
@@ -21,6 +22,7 @@ from app.modules.dashboard.timezone import (
 )
 
 __all__ = [
+    "dashboard_router",
     "DashboardQueryService",
     "DashboardSummaryDTO",
     "SalesSummaryDTO",
