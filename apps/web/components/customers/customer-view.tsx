@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { Customer } from "@/lib/schemas/customers";
 import { useArchiveCustomer, useCustomers } from "@/hooks/use-customers";
 import { CustomerModal } from "@/components/customers/customer-modal";
@@ -59,68 +60,79 @@ export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewP
       {/* Header */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
             Customer Directory
           </h1>
-          <p className="text-sm text-gray-500">
+          <p className="text-sm text-slate-500">
             Manage customer contact records for repeat sales, order association, and balance tracking.
           </p>
         </div>
-        {canCreate && (
-          <div className="flex gap-2">
+        <div className="flex flex-wrap items-center gap-2">
+          <Link
+            href={`/workspace/${orgId}/orders`}
+            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+          >
+            View Orders
+          </Link>
+          {canCreate && (
             <button
               onClick={handleOpenCreate}
-              className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none"
+              className="inline-flex items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2"
             >
               Add Customer
             </button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       {/* Walk-in notice banner */}
-      <div className="rounded-md border border-blue-100 bg-blue-50 p-3 text-xs text-blue-800">
-        <span className="font-semibold">Walk-in alternative:</span> Recording a customer profile is optional. Orders can be entered directly as anonymous walk-in sales.
+      <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3.5 text-xs text-blue-900 flex items-center gap-2.5">
+        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-200 text-blue-800 font-bold text-xs">
+          i
+        </span>
+        <div>
+          <span className="font-semibold">Walk-in alternative:</span> Recording a customer profile is optional. Orders can be entered directly as anonymous walk-in sales.
+        </div>
       </div>
 
       {/* Controls: Search & Status Filter */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1">
+        <div className="relative flex-1 max-w-md">
           <input
             type="text"
             placeholder="Search by customer name or phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm placeholder-gray-400 focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500"
+            className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 shadow-xs"
           />
         </div>
         <div className="flex gap-2">
           <button
             onClick={() => setStatusFilter("active")}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
               statusFilter === "active"
-                ? "bg-indigo-50 text-indigo-700 font-semibold"
-                : "text-gray-600 hover:bg-gray-100"
+                ? "bg-slate-800 text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
             Active
           </button>
           <button
             onClick={() => setStatusFilter("archived")}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
               statusFilter === "archived"
-                ? "bg-indigo-50 text-indigo-700 font-semibold"
-                : "text-gray-600 hover:bg-gray-100"
+                ? "bg-slate-800 text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
             Archived
           </button>
           <button
             onClick={() => setStatusFilter(undefined)}
-            className={`rounded-md px-3 py-1.5 text-xs font-medium ${
+            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
               statusFilter === undefined
-                ? "bg-indigo-50 text-indigo-700 font-semibold"
-                : "text-gray-600 hover:bg-gray-100"
+                ? "bg-slate-800 text-white"
+                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
             }`}
           >
             All
@@ -128,79 +140,77 @@ export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewP
         </div>
       </div>
 
-      {/* Table */}
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      {/* Content Table */}
+      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
         {isLoading ? (
-          <div className="py-12 text-center text-sm text-gray-500">
-            Loading customers...
-          </div>
+          <div className="p-8 text-center text-sm text-slate-500">Loading customers...</div>
         ) : error ? (
-          <div className="py-12 text-center text-sm text-red-600">
-            Failed to load customers.
-          </div>
+          <div className="p-8 text-center text-sm text-rose-600">Failed to load customer list.</div>
         ) : !data || data.items.length === 0 ? (
-          <div className="py-12 text-center text-sm text-gray-500">
-            No customer records found.
-          </div>
+          <div className="p-8 text-center text-sm text-slate-500">No customers found.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-left text-sm">
-              <thead className="bg-gray-50 text-xs font-medium uppercase tracking-wider text-gray-500">
+            <table className="min-w-full divide-y divide-slate-200 text-sm">
+              <thead className="bg-slate-50/80">
                 <tr>
-                  <th scope="col" className="px-6 py-3">Customer Name</th>
-                  <th scope="col" className="px-6 py-3">Phone</th>
-                  <th scope="col" className="px-6 py-3">Email</th>
-                  <th scope="col" className="px-6 py-3">Notes</th>
-                  <th scope="col" className="px-6 py-3">Status</th>
-                  <th scope="col" className="px-6 py-3 text-right">Actions</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Customer</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Contact</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Notes</th>
+                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
+                  <th className="px-4 py-3 text-right font-semibold text-slate-600">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200 bg-white">
-                {data.items.map((cust) => (
-                  <tr key={cust.id} className="hover:bg-gray-50">
-                    <td className="whitespace-nowrap px-6 py-4 font-medium text-gray-900">
-                      {cust.name}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-gray-600">
-                      {cust.phone || <span className="text-gray-300 italic">None</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-gray-600">
-                      {cust.email || <span className="text-gray-300 italic">None</span>}
-                    </td>
-                    <td className="max-w-xs truncate px-6 py-4 text-gray-500">
-                      {cust.notes || <span className="text-gray-300 italic">—</span>}
-                    </td>
-                    <td className="whitespace-nowrap px-6 py-4">
-                      {cust.status === "active" ? (
-                        <span className="inline-flex rounded-full bg-green-100 px-2 text-xs font-semibold leading-5 text-green-800">
-                          Active
-                        </span>
-                      ) : (
-                        <span className="inline-flex rounded-full bg-gray-100 px-2 text-xs font-semibold leading-5 text-gray-800">
-                          Archived
-                        </span>
+              <tbody className="divide-y divide-slate-100 bg-white">
+                {data.items.map((customer) => (
+                  <tr key={customer.id} className="hover:bg-slate-50/60 transition-colors">
+                    <td className="px-4 py-3 font-semibold text-slate-900">{customer.name}</td>
+                    <td className="px-4 py-3 text-slate-600">
+                      <div>{customer.phone || "—"}</div>
+                      {customer.email && (
+                        <div className="text-xs text-slate-400">{customer.email}</div>
                       )}
                     </td>
-                    <td className="whitespace-nowrap px-6 py-4 text-right text-xs font-medium space-x-2">
-                      {canMutate && cust.status === "active" && (
-                        <>
-                          <button
-                            onClick={() => handleOpenEdit(cust)}
-                            className="text-indigo-600 hover:text-indigo-900"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            onClick={() => handleArchive(cust)}
-                            className="text-red-600 hover:text-red-900"
-                          >
-                            Archive
-                          </button>
-                        </>
-                      )}
-                      {!canMutate && (
-                        <span className="text-gray-400 italic">Read-only</span>
-                      )}
+                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate">
+                      {customer.notes || "—"}
+                    </td>
+                    <td className="px-4 py-3">
+                      <span
+                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
+                          customer.status === "active"
+                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
+                            : "bg-slate-100 text-slate-600 border-slate-200"
+                        }`}
+                      >
+                        {customer.status}
+                      </span>
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <div className="flex justify-end items-center gap-2">
+                        <Link
+                          href={`/workspace/${orgId}/orders?customerId=${customer.id}`}
+                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+                        >
+                          New Order
+                        </Link>
+                        {canMutate && customer.status === "active" ? (
+                          <>
+                            <button
+                              onClick={() => handleOpenEdit(customer)}
+                              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              onClick={() => handleArchive(customer)}
+                              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
+                            >
+                              Archive
+                            </button>
+                          </>
+                        ) : !canMutate ? (
+                          <span className="text-xs text-slate-400 py-1">Read-only</span>
+                        ) : null}
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -210,16 +220,14 @@ export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewP
         )}
       </div>
 
-      {/* Customer Modal */}
-      {isModalOpen && (
-        <CustomerModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          orgId={orgId}
-          customer={selectedCustomer}
-          token={token}
-        />
-      )}
+      {/* Customer Create/Edit Modal */}
+      <CustomerModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        orgId={orgId}
+        customer={selectedCustomer}
+        token={token}
+      />
     </div>
   );
 }

@@ -18,6 +18,7 @@ interface OrderCreateModalProps {
   onClose: () => void;
   orgId: string;
   token?: string;
+  initialCustomerId?: string;
 }
 
 export function OrderCreateModal({
@@ -25,12 +26,19 @@ export function OrderCreateModal({
   onClose,
   orgId,
   token,
+  initialCustomerId,
 }: OrderCreateModalProps) {
-  const [customerId, setCustomerId] = useState<string>("");
+  const [customerId, setCustomerId] = useState<string>(initialCustomerId || "");
   const [items, setItems] = useState<LineItemDraft[]>([
     { id: "item-1", product_id: "", quantity: 1, unit_price_minor: 0 },
   ]);
   const [formError, setFormError] = useState<string | null>(null);
+
+  React.useEffect(() => {
+    if (initialCustomerId) {
+      setCustomerId(initialCustomerId);
+    }
+  }, [initialCustomerId]);
 
   const { data: productsData } = useProducts(orgId, { status: "active", limit: 100 }, token);
   const { data: customersData } = useCustomers(orgId, { status: "active", limit: 100 }, token);
@@ -146,13 +154,14 @@ export function OrderCreateModal({
 
           {/* Customer Selection */}
           <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
+            <label htmlFor="order-customer-select" className="block text-xs font-medium text-gray-700 mb-1">
               Customer (Optional — Walk-in anonymous sale if left empty)
             </label>
             <select
+              id="order-customer-select"
               value={customerId}
               onChange={(e) => setCustomerId(e.target.value)}
-              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-indigo-500 focus:outline-none"
+              className="block w-full rounded-md border border-gray-300 px-3 py-2 text-sm focus:border-emerald-500 focus:outline-none"
             >
               <option value="">Walk-in Customer (Anonymous)</option>
               {customers.map((c) => (
