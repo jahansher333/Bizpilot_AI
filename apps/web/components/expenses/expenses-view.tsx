@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { formatMoney, Expense } from "@/lib/schemas/expenses";
 import { useDailyExpenseTotal, useExpenseCategories, useExpenses } from "@/hooks/use-expenses";
 import { ExpenseCreateModal } from "@/components/expenses/expense-create-modal";
@@ -136,7 +137,13 @@ export function ExpensesView({ orgId, userRole = "owner", token }: ExpensesViewP
           </p>
         </div>
 
-        <div className="flex gap-2">
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/workspace/${orgId}`}
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none"
+          >
+            Dashboard
+          </Link>
           {canManageCategories && (
             <button
               onClick={() => setIsCategoryManageOpen(true)}
@@ -148,11 +155,18 @@ export function ExpensesView({ orgId, userRole = "owner", token }: ExpensesViewP
           {canCreate && (
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none"
+              className="inline-flex items-center rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-800 focus:outline-none"
             >
               Record Expense
             </button>
           )}
+        </div>
+      </div>
+
+      {/* Operational Scope Notice */}
+      <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900 flex items-center justify-between">
+        <div>
+          <span className="font-semibold">Operational Outflow Tracking:</span> Direct recording of operational overheads and expenditures. Distinguishable from double-entry formal accounting ledgers.
         </div>
       </div>
 

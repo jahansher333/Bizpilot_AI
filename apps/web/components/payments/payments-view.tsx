@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
+import Link from "next/link";
 import { formatMoney, Payment } from "@/lib/schemas/payments";
 import { useDailyPaymentTotal, usePayments } from "@/hooks/use-payments";
 import { PaymentCreateModal } from "@/components/payments/payment-create-modal";
@@ -12,11 +13,21 @@ interface PaymentsViewProps {
   orgId: string;
   userRole?: string; // "owner", "manager", "staff"
   token?: string;
+  initialOrderId?: string;
+  initialCustomerId?: string;
 }
 
-export function PaymentsView({ orgId, userRole = "owner", token }: PaymentsViewProps) {
+export function PaymentsView({
+  orgId,
+  userRole = "owner",
+  token,
+  initialOrderId,
+  initialCustomerId,
+}: PaymentsViewProps) {
   const [statusFilter, setStatusFilter] = useState<string | undefined>("all");
   const [channelFilter, setChannelFilter] = useState<string | undefined>("all");
+  const [selectedCustomerId] = useState<string | undefined>(initialCustomerId);
+  const [selectedOrderId] = useState<string | undefined>(initialOrderId);
   const [selectedPayment, setSelectedPayment] = useState<Payment | null>(null);
 
   const [isCreateOpen, setIsCreateOpen] = useState(false);
@@ -32,6 +43,8 @@ export function PaymentsView({ orgId, userRole = "owner", token }: PaymentsViewP
     {
       status: effectiveStatus,
       channel: effectiveChannel,
+      customerId: selectedCustomerId,
+      orderId: selectedOrderId,
       limit: 100,
       offset: 0,
     },
@@ -112,20 +125,54 @@ export function PaymentsView({ orgId, userRole = "owner", token }: PaymentsViewP
           </p>
         </div>
 
-        {canCreate && (
-          <button
-            onClick={() => setIsCreateOpen(true)}
-            className="inline-flex items-center rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-indigo-700 focus:outline-none"
+        <div className="flex items-center gap-3">
+          <Link
+            href={`/workspace/${orgId}/orders`}
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none"
           >
-            Record Receipt
-          </button>
-        )}
+            Orders Directory
+          </Link>
+          <Link
+            href={`/workspace/${orgId}/customers`}
+            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none"
+          >
+            Customers
+          </Link>
+          {canCreate && (
+            <button
+              onClick={() => setIsCreateOpen(true)}
+              className="inline-flex items-center rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-800 focus:outline-none"
+            >
+              Record Receipt
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Staff Notice */}
       {isStaff && (
         <div className="rounded-md border border-amber-100 bg-amber-50 p-3 text-xs text-amber-800">
           <span className="font-semibold">Staff Permissions:</span> You have permission to record new payments and view receipt records. Voiding requires Owner authority and corrections require Manager authority.
+        </div>
+      )}
+
+      {/* Operational Scope Notice */}
+      <div className="rounded-md border border-blue-200 bg-blue-50/70 p-3 text-xs text-blue-900 flex items-center justify-between">
+        <div>
+          <span className="font-semibold">Operational Receipt Tracking:</span> Records payment receipts and customer credit balances in real-time. This is operational cashflow tracking, not bank statement reconciliation.
+        </div>
+      </div>
+
+      {/* Customer / Order Filter Banner */}
+      {(selectedCustomerId || selectedOrderId) && (
+        <div className="flex items-center justify-between rounded-md border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-xs text-emerald-900">
+          <span>
+            {selectedOrderId && <>Filtering receipts for order: <strong className="font-mono">{selectedOrderId}</strong> </>}
+            {selectedCustomerId && <>Filtering receipts for customer: <strong className="font-mono">{selectedCustomerId}</strong></>}
+          </span>
+          <Link href={`/workspace/${orgId}/payments`} className="font-medium underline hover:text-emerald-950">
+            Show All Payments
+          </Link>
         </div>
       )}
 
@@ -158,7 +205,7 @@ export function PaymentsView({ orgId, userRole = "owner", token }: PaymentsViewP
               onClick={() => setStatusFilter(st)}
               className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
                 statusFilter === st
-                  ? "bg-indigo-50 text-indigo-700 font-semibold"
+                  ? "bg-emerald-100 text-emerald-900 font-semibold"
                   : "text-gray-500 hover:text-gray-700 hover:bg-gray-50"
               }`}
             >
@@ -291,6 +338,8 @@ export function PaymentsView({ orgId, userRole = "owner", token }: PaymentsViewP
         onClose={() => setIsCreateOpen(false)}
         orgId={orgId}
         token={token}
+        initialOrderId={selectedOrderId}
+        initialCustomerId={selectedCustomerId}
       />
 
       <PaymentDetailModal

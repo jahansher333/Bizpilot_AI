@@ -225,7 +225,7 @@ export function ExpenseCreateModal({
             <button
               type="submit"
               disabled={createMutation.isPending || parsedAmountMinor <= 0}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none disabled:bg-gray-400"
+              className="rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white hover:bg-emerald-800 focus:outline-none disabled:bg-gray-400"
             >
               {createMutation.isPending ? "Recording..." : "Record Expense"}
             </button>
