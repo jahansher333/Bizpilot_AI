@@ -12,6 +12,7 @@ interface AssistantViewProps {
   orgId: string;
   userRole?: string; // "owner", "manager", "staff"
   token?: string;
+  initialPrompt?: string;
 }
 
 interface MessageItem {
@@ -26,10 +27,12 @@ export function AssistantView({
   orgId,
   userRole = "owner",
   token,
+  initialPrompt,
 }: AssistantViewProps) {
   const [messages, setMessages] = useState<MessageItem[]>([]);
   const [inputMessage, setInputMessage] = useState("");
   const [lastPrompt, setLastPrompt] = useState<string | null>(null);
+  const initialSentRef = useRef(false);
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,6 +49,13 @@ export function AssistantView({
   useEffect(() => {
     scrollToBottom();
   }, [messages, assistantMutation.isPending]);
+
+  useEffect(() => {
+    if (initialPrompt && !initialSentRef.current && messages.length === 0) {
+      initialSentRef.current = true;
+      handleSendMessage(initialPrompt);
+    }
+  }, [initialPrompt]);
 
   const handleSendMessage = (textToSend?: string) => {
     const text = (textToSend ?? inputMessage).trim();

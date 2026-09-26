@@ -74,7 +74,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
                 onClick={() => handlePeriodChange(p)}
                 className={`rounded-md px-3 py-1.5 text-xs font-medium capitalize transition-colors ${
                   selectedPeriod === p
-                    ? "bg-indigo-600 text-white shadow-sm"
+                    ? "bg-emerald-700 text-white shadow-sm"
                     : "bg-white text-gray-700 border border-gray-300 hover:bg-gray-50"
                 }`}
               >
@@ -82,6 +82,51 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
               </button>
             )
           )}
+        </div>
+      </div>
+
+      {/* AI Business Copilot Spotlight */}
+      <div className="rounded-xl border border-emerald-200 bg-gradient-to-r from-emerald-50 via-teal-50 to-white p-5 shadow-xs">
+        <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <span className="inline-flex items-center rounded-md bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800 border border-emerald-300">
+                AI Copilot
+              </span>
+              <h2 className="text-base font-semibold text-gray-950">
+                Operational Business Copilot
+              </h2>
+            </div>
+            <p className="text-xs text-gray-600 max-w-2xl">
+              Ask questions about sales trends, low stock alerts, customer balances, or operating expenses. Every answer is grounded directly in verified database records.
+            </p>
+          </div>
+
+          <Link
+            href={`/workspace/${orgId}/assistant`}
+            className="inline-flex items-center justify-center rounded-lg bg-emerald-700 px-4 py-2 text-xs font-semibold text-white shadow-sm hover:bg-emerald-800 transition shrink-0"
+          >
+            Consult AI Copilot →
+          </Link>
+        </div>
+
+        {/* Quick Question Chips */}
+        <div className="mt-3 flex flex-wrap gap-2 pt-2 border-t border-emerald-100/60">
+          <span className="text-[11px] font-medium text-emerald-900 py-1">Quick insights:</span>
+          {[
+            "How are sales doing today?",
+            "Which products are low on stock?",
+            "What is our customer balance status?",
+            ...(userRole !== "staff" ? ["Summarize operational expenses"] : []),
+          ].map((prompt) => (
+            <Link
+              key={prompt}
+              href={`/workspace/${orgId}/assistant?prompt=${encodeURIComponent(prompt)}`}
+              className="rounded-md border border-emerald-200 bg-white px-2.5 py-1 text-xs text-emerald-900 hover:bg-emerald-50 hover:border-emerald-300 transition shadow-xs"
+            >
+              {prompt}
+            </Link>
+          ))}
         </div>
       </div>
 
@@ -157,9 +202,12 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
           <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             {/* Sales Orders */}
             <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-              <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Sales Orders
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Sales Orders
+                </span>
+                <span className="text-[10px] font-mono text-gray-400">PostgreSQL</span>
+              </div>
               <div className="mt-2 text-2xl font-bold text-gray-900">
                 {formatMoney(data.sales.total_sales_minor, data.sales.currency_code)}
               </div>
@@ -167,7 +215,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
                 <span>{data.sales.order_count} active order(s)</span>
                 <Link
                   href={`/workspace/${orgId}/orders`}
-                  className="font-medium text-indigo-600 hover:text-indigo-800"
+                  className="font-medium text-emerald-700 hover:text-emerald-900"
                 >
                   View Orders →
                 </Link>
@@ -176,9 +224,12 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
 
             {/* Collections */}
             <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-              <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Payments Collected
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Payments Collected
+                </span>
+                <span className="text-[10px] font-mono text-gray-400">PostgreSQL</span>
+              </div>
               <div className="mt-2 text-2xl font-bold text-gray-900">
                 {formatMoney(data.payments.total_collected_minor, data.payments.currency_code)}
               </div>
@@ -186,7 +237,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
                 <span>{data.payments.payment_count} receipt(s)</span>
                 <Link
                   href={`/workspace/${orgId}/payments`}
-                  className="font-medium text-indigo-600 hover:text-indigo-800"
+                  className="font-medium text-emerald-700 hover:text-emerald-900"
                 >
                   View Receipts →
                 </Link>
@@ -195,9 +246,12 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
 
             {/* Operating Expenses */}
             <div className="rounded-lg border border-gray-200 bg-white p-5 shadow-sm">
-              <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
-                Operating Expenses
-              </span>
+              <div className="flex items-center justify-between">
+                <span className="text-xs font-medium uppercase tracking-wider text-gray-500">
+                  Operating Expenses
+                </span>
+                <span className="text-[10px] font-mono text-gray-400">PostgreSQL</span>
+              </div>
               {data.expenses !== null && data.expenses !== undefined ? (
                 <>
                   <div className="mt-2 text-2xl font-bold text-gray-900">
@@ -207,7 +261,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
                     <span>{data.expenses.expense_count} expense record(s)</span>
                     <Link
                       href={`/workspace/${orgId}/expenses`}
-                      className="font-medium text-indigo-600 hover:text-indigo-800"
+                      className="font-medium text-emerald-700 hover:text-emerald-900"
                     >
                       View Expenses →
                     </Link>
