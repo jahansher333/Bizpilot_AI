@@ -1,5 +1,10 @@
 """AI module package for BizPilot AI Assistant."""
 
+from app.modules.ai.assistant import (
+    BizPilotAssistantOrchestrator,
+    build_sdk_function_tools,
+    build_system_message,
+)
 from app.modules.ai.exceptions import (
     AIConfigurationException,
     AIDisabledException,
@@ -22,4 +27,7 @@ __all__ = [
     "get_ai_provider",
     "OPENAI_TOOL_DEFINITIONS",
     "AIToolRegistry",
+    "BizPilotAssistantOrchestrator",
+    "build_sdk_function_tools",
+    "build_system_message",
 ]
