@@ -384,3 +384,48 @@ class AssistantResponse(BaseModel):
     provenance: list[ProvenanceMeta] = Field(default_factory=list)
     model: str
     latency_ms: float
+    trace_id: str | None = None
+    interaction_id: UUID | None = None
+
+
+# -------------------------------------------------------------------------
+# AI Observability & Tracing Metadata Records (AI-007)
+# -------------------------------------------------------------------------
+
+class AIToolCallMetadataRecord(BaseModel):
+    """Pydantic read model for an individual tool call metadata record."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    ai_interaction_id: UUID
+    organization_id: UUID
+    tool_name: str
+    authorization_result: str
+    status: str
+    latency_ms: float
+    error_category: str | None = None
+    provenance_tool: str | None = None
+    provenance_period: str | None = None
+    provenance_method: str | None = None
+    created_at: datetime
+
+
+class AIInteractionMetadataRecord(BaseModel):
+    """Pydantic read model for an AI Assistant interaction cycle."""
+    model_config = ConfigDict(from_attributes=True, extra="forbid")
+
+    id: UUID
+    organization_id: UUID
+    user_id: UUID | None = None
+    trace_id: str
+    model_identifier: str
+    status: str
+    latency_ms: float
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
+    total_tokens: int | None = None
+    estimated_cost_pkr_minor: int | None = None
+    error_category: str | None = None
+    has_grounded_provenance: bool
+    created_at: datetime
+    tool_calls: list[AIToolCallMetadataRecord] = Field(default_factory=list)

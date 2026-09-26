@@ -28,6 +28,8 @@ import app.modules.idempotency.models  # noqa: F401, E402
 import app.modules.customers.models  # noqa: F401, E402
 import app.modules.orders.models  # noqa: F401, E402
 import app.modules.payments.models  # noqa: F401, E402
+import app.modules.expenses.models  # noqa: F401, E402
+import app.modules.ai.models  # noqa: F401, E402
 import app.modules.trace.models  # noqa: F401, E402
 
 

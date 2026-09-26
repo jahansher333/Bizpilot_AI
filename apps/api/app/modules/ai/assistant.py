@@ -18,6 +18,7 @@ import asyncio
 import json
 import logging
 import time
+import uuid
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -39,7 +40,9 @@ from app.modules.ai.exceptions import (
     AIProviderUnavailableException,
     AITimeoutException,
 )
+from app.modules.ai.metadata_service import AIMetadataService
 from app.modules.ai.provider import AIProviderAdapter, get_ai_provider
+from app.modules.ai.redaction import sanitize_error_category
 from app.modules.ai.schemas import (
     AssistantMessage,
     AssistantRequest,
@@ -190,16 +193,59 @@ class BizPilotAssistantOrchestrator:
     ) -> AssistantResponse:
         """Run a single assistant turn using the OpenAI Agents SDK Runner."""
         start_time = time.perf_counter()
+        trace_id = f"trc_{uuid.uuid4().hex[:16]}"
+
+        # Server runtime context
+        runtime_ctx = AssistantRuntimeContext(
+            session=session,
+            request_context=context,
+            org_name=org_name,
+        )
+
+        async def _safe_record_metadata(
+            status: str,
+            latency_ms: float,
+            error_category: str | None = None,
+            prompt_tokens: int | None = None,
+            completion_tokens: int | None = None,
+            total_tokens: int | None = None,
+        ) -> uuid.UUID | None:
+            try:
+                interaction = await AIMetadataService.record_interaction(
+                    session=session,
+                    context=context,
+                    trace_id=trace_id,
+                    model_identifier=self._provider.model_name,
+                    status=status,
+                    latency_ms=latency_ms,
+                    tool_calls=runtime_ctx.executed_tool_calls,
+                    provenance=runtime_ctx.collected_provenance,
+                    error_category=error_category,
+                    prompt_tokens=prompt_tokens,
+                    completion_tokens=completion_tokens,
+                    total_tokens=total_tokens,
+                )
+                return interaction.id
+            except Exception as meta_exc:
+                logger.warning("Failed to persist AI metadata: %s", meta_exc)
+                return None
 
         # 1. Guard: Check if provider is enabled
         if not self._provider.is_enabled:
             latency_ms = (time.perf_counter() - start_time) * 1000
+            interaction_id = await _safe_record_metadata(
+                status="disabled",
+                latency_ms=latency_ms,
+                error_category="disabled",
+            )
             return AssistantResponse(
                 content="BizPilot AI Assistant is currently disabled. Core business operations remain unaffected.",
                 tool_calls=[],
                 provenance=[],
                 model=self._provider.model_name,
                 latency_ms=latency_ms,
+                trace_id=trace_id,
+                interaction_id=interaction_id,
             )
 
         # 2. Filter available tools by caller permissions
@@ -218,14 +264,7 @@ class BizPilotAssistantOrchestrator:
             tools=agent_tools,
         )
 
-        # 4. Prepare server runtime context
-        runtime_ctx = AssistantRuntimeContext(
-            session=session,
-            request_context=context,
-            org_name=org_name,
-        )
-
-        # 5. Format user input (with bounded history prefix if provided)
+        # 4. Format user input (with bounded history prefix if provided)
         user_input: str
         if request.conversation_history:
             history_lines = []
@@ -240,7 +279,7 @@ class BizPilotAssistantOrchestrator:
             user_input = request.message
 
         try:
-            # 6. Configure client and safe tracing
+            # 5. Configure client and safe tracing
             client = self._provider.get_client()
             set_default_openai_client(client, use_for_tracing=False)
             set_tracing_disabled(not self._provider.log_raw_prompts)
@@ -250,7 +289,7 @@ class BizPilotAssistantOrchestrator:
                 trace_include_sensitive_data=False,
             )
 
-            # 7. Execute Runner.run protected by application-level timeout boundary
+            # 6. Execute Runner.run protected by application-level timeout boundary
             coro = Runner.run(
                 starting_agent=agent,
                 input=user_input,
@@ -268,39 +307,102 @@ class BizPilotAssistantOrchestrator:
             final_content = run_result.final_output or ""
             latency_ms = (time.perf_counter() - start_time) * 1000
 
+            # Extract token usage if available from SDK responses
+            prompt_tokens = None
+            completion_tokens = None
+            total_tokens = None
+            for r in getattr(run_result, "raw_responses", []):
+                u = getattr(r, "usage", None)
+                if u:
+                    p = getattr(u, "input_tokens", None) or getattr(u, "prompt_tokens", None)
+                    c = getattr(u, "output_tokens", None) or getattr(u, "completion_tokens", None)
+                    t = getattr(u, "total_tokens", None)
+                    if p is not None:
+                        prompt_tokens = (prompt_tokens or 0) + p
+                    if c is not None:
+                        completion_tokens = (completion_tokens or 0) + c
+                    if t is not None:
+                        total_tokens = (total_tokens or 0) + t
+
+            err_cat = None
+            if any(tc.status == "denied" for tc in runtime_ctx.executed_tool_calls):
+                err_cat = "authorization_denied"
+            elif any(tc.status == "error" for tc in runtime_ctx.executed_tool_calls):
+                err_cat = "tool_error"
+
+            interaction_id = await _safe_record_metadata(
+                status="success",
+                latency_ms=latency_ms,
+                error_category=err_cat,
+                prompt_tokens=prompt_tokens,
+                completion_tokens=completion_tokens,
+                total_tokens=total_tokens,
+            )
+
             return AssistantResponse(
                 content=final_content,
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
                 model=self._provider.model_name,
                 latency_ms=latency_ms,
+                trace_id=trace_id,
+                interaction_id=interaction_id,
             )
 
         except MaxTurnsExceeded:
             latency_ms = (time.perf_counter() - start_time) * 1000
+            interaction_id = await _safe_record_metadata(
+                status="max_turns_exceeded",
+                latency_ms=latency_ms,
+                error_category="max_turns_exceeded",
+            )
             return AssistantResponse(
                 content="I have gathered the available details, but reached the maximum tool exploration limit. Please ask a more specific question.",
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
                 model=self._provider.model_name,
                 latency_ms=latency_ms,
+                trace_id=trace_id,
+                interaction_id=interaction_id,
             )
         except (AITimeoutException, AIProviderUnavailableException, AIDisabledException) as exc:
             latency_ms = (time.perf_counter() - start_time) * 1000
+            err_cat = sanitize_error_category(exc)
+            status_map = {
+                "timeout": "timeout",
+                "provider_unavailable": "provider_unavailable",
+                "disabled": "disabled",
+            }
+            norm_status = status_map.get(err_cat, "error")
+            interaction_id = await _safe_record_metadata(
+                status=norm_status,
+                latency_ms=latency_ms,
+                error_category=err_cat,
+            )
             return AssistantResponse(
                 content=str(exc.message),
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
                 model=self._provider.model_name,
                 latency_ms=latency_ms,
+                trace_id=trace_id,
+                interaction_id=interaction_id,
             )
         except Exception as exc:
             logger.error("Unhandled exception during AI assistant orchestration: %s", exc, exc_info=True)
             latency_ms = (time.perf_counter() - start_time) * 1000
+            err_cat = sanitize_error_category(exc, default="internal_error")
+            interaction_id = await _safe_record_metadata(
+                status="error",
+                latency_ms=latency_ms,
+                error_category=err_cat,
+            )
             return AssistantResponse(
                 content="The AI assistant encountered an unexpected error. Core business operations remain unaffected.",
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
                 model=self._provider.model_name,
                 latency_ms=latency_ms,
+                trace_id=trace_id,
+                interaction_id=interaction_id,
             )
