@@ -17,6 +17,7 @@ from app.modules.ai.metadata_service import AIMetadataService
 from app.modules.ai.models import AIInteraction, AIToolCall
 from app.modules.ai.provider import AIProviderAdapter, get_ai_provider
 from app.modules.ai.redaction import redact_dict, redact_sensitive_text
+from app.modules.ai.router import ai_router
 from app.modules.ai.schemas import (
     AIInteractionMetadataRecord,
     AIToolCallMetadataRecord,
@@ -44,4 +45,5 @@ __all__ = [
     "redact_dict",
     "AIInteractionMetadataRecord",
     "AIToolCallMetadataRecord",
+    "ai_router",
 ]

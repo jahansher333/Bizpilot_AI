@@ -22,6 +22,7 @@ from app.modules.orders import order_router
 from app.modules.payments import payment_router
 from app.modules.organizations import organization_router
 from app.modules.products import product_router
+from app.modules.ai import ai_router
 
 DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     auth_router,
@@ -35,6 +36,7 @@ DEFAULT_MODULE_ROUTERS: tuple[APIRouter, ...] = (
     expense_category_router,
     expense_router,
     dashboard_router,
+    ai_router,
 )
 
 
