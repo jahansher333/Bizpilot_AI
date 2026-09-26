@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import Link from "next/link";
 import { ProductList } from "./product-list";
 import { CategoryList } from "./category-list";
 
@@ -39,21 +40,30 @@ export function CatalogView({
             </p>
           </div>
 
-          {/* Role badge and simulator for permission preview */}
-          <div className="flex items-center space-x-3 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
-            <span className="text-xs font-medium text-slate-500">Active Role:</span>
-            <select
-              aria-label="Select role for preview"
-              value={currentRole}
-              onChange={(e) =>
-                setCurrentRole(e.target.value as "owner" | "manager" | "staff")
-              }
-              className="rounded border border-slate-300 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none"
+          <div className="flex flex-wrap items-center gap-3">
+            <Link
+              href={`/workspace/${organizationId}/inventory`}
+              className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
             >
-              <option value="owner">Owner (Full Access)</option>
-              <option value="manager">Manager (Full Access)</option>
-              <option value="staff">Staff (Read-Only)</option>
-            </select>
+              Check Inventory Stock
+            </Link>
+
+            {/* Role badge and simulator for permission preview */}
+            <div className="flex items-center space-x-3 rounded-lg border border-slate-200 bg-white p-2 shadow-sm">
+              <span className="text-xs font-medium text-slate-500">Active Role:</span>
+              <select
+                aria-label="Select role for preview"
+                value={currentRole}
+                onChange={(e) =>
+                  setCurrentRole(e.target.value as "owner" | "manager" | "staff")
+                }
+                className="rounded border border-slate-300 bg-slate-50 px-2 py-1 text-xs font-semibold text-slate-800 focus:border-emerald-500 focus:outline-none"
+              >
+                <option value="owner">Owner (Full Access)</option>
+                <option value="manager">Manager (Full Access)</option>
+                <option value="staff">Staff (Read-Only)</option>
+              </select>
+            </div>
           </div>
         </div>
 
