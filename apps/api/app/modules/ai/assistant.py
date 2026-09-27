@@ -178,10 +178,12 @@ class BizPilotAssistantOrchestrator:
     """Orchestrates the single BizPilot AI Assistant using the OpenAI Agents SDK."""
 
     def __init__(self, provider: AIProviderAdapter | None = None) -> None:
-        self._provider = provider or get_ai_provider()
+        self._provider = provider
 
     @property
     def provider(self) -> AIProviderAdapter:
+        if self._provider is None:
+            self._provider = get_ai_provider()
         return self._provider
 
     async def run_turn(
@@ -215,7 +217,7 @@ class BizPilotAssistantOrchestrator:
                     session=session,
                     context=context,
                     trace_id=trace_id,
-                    model_identifier=self._provider.model_name,
+                    model_identifier=self.provider.model_name,
                     status=status,
                     latency_ms=latency_ms,
                     tool_calls=runtime_ctx.executed_tool_calls,
@@ -231,7 +233,7 @@ class BizPilotAssistantOrchestrator:
                 return None
 
         # 1. Guard: Check if provider is enabled
-        if not self._provider.is_enabled:
+        if not self.provider.is_enabled:
             latency_ms = (time.perf_counter() - start_time) * 1000
             interaction_id = await _safe_record_metadata(
                 status="disabled",
@@ -242,7 +244,7 @@ class BizPilotAssistantOrchestrator:
                 content="BizPilot AI Assistant is currently disabled. Core business operations remain unaffected.",
                 tool_calls=[],
                 provenance=[],
-                model=self._provider.model_name,
+                model=self.provider.model_name,
                 latency_ms=latency_ms,
                 trace_id=trace_id,
                 interaction_id=interaction_id,
@@ -260,7 +262,7 @@ class BizPilotAssistantOrchestrator:
         agent = Agent(
             name="BizPilotAssistant",
             instructions=system_instructions,
-            model=self._provider.model_name,
+            model=self.provider.model_name,
             tools=agent_tools,
         )
 
@@ -280,12 +282,12 @@ class BizPilotAssistantOrchestrator:
 
         try:
             # 5. Configure client and safe tracing
-            client = self._provider.get_client()
+            client = self.provider.get_client()
             set_default_openai_client(client, use_for_tracing=False)
-            set_tracing_disabled(not self._provider.log_raw_prompts)
+            set_tracing_disabled(not self.provider.log_raw_prompts)
 
             run_config = RunConfig(
-                tracing_disabled=not self._provider.log_raw_prompts,
+                tracing_disabled=not self.provider.log_raw_prompts,
                 trace_include_sensitive_data=False,
             )
 
@@ -294,15 +296,15 @@ class BizPilotAssistantOrchestrator:
                 starting_agent=agent,
                 input=user_input,
                 context=runtime_ctx,
-                max_turns=self._provider.max_tool_calls,
+                max_turns=self.provider.max_tool_calls,
                 run_config=run_config,
             )
 
             try:
-                run_result = await asyncio.wait_for(coro, timeout=self._provider.timeout_seconds)
+                run_result = await asyncio.wait_for(coro, timeout=self.provider.timeout_seconds)
             except asyncio.TimeoutError as exc:
                 raise AITimeoutException(
-                    f"The AI request timed out after {self._provider.timeout_seconds:.1f}s. Core operations remain unaffected."
+                    f"The AI request timed out after {self.provider.timeout_seconds:.1f}s. Core operations remain unaffected."
                 ) from exc
             final_content = run_result.final_output or ""
             latency_ms = (time.perf_counter() - start_time) * 1000
@@ -343,7 +345,7 @@ class BizPilotAssistantOrchestrator:
                 content=final_content,
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
-                model=self._provider.model_name,
+                model=self.provider.model_name,
                 latency_ms=latency_ms,
                 trace_id=trace_id,
                 interaction_id=interaction_id,
@@ -360,7 +362,7 @@ class BizPilotAssistantOrchestrator:
                 content="I have gathered the available details, but reached the maximum tool exploration limit. Please ask a more specific question.",
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
-                model=self._provider.model_name,
+                model=self.provider.model_name,
                 latency_ms=latency_ms,
                 trace_id=trace_id,
                 interaction_id=interaction_id,
@@ -383,7 +385,7 @@ class BizPilotAssistantOrchestrator:
                 content=str(exc.message),
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
-                model=self._provider.model_name,
+                model=self.provider.model_name,
                 latency_ms=latency_ms,
                 trace_id=trace_id,
                 interaction_id=interaction_id,
@@ -401,7 +403,7 @@ class BizPilotAssistantOrchestrator:
                 content="The AI assistant encountered an unexpected error. Core business operations remain unaffected.",
                 tool_calls=runtime_ctx.executed_tool_calls,
                 provenance=runtime_ctx.collected_provenance,
-                model=self._provider.model_name,
+                model=self.provider.model_name,
                 latency_ms=latency_ms,
                 trace_id=trace_id,
                 interaction_id=interaction_id,
