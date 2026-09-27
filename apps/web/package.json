@@ -7,7 +7,8 @@
     "build": "next build",
     "start": "next start",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:e2e": "playwright test"
   },
   "dependencies": {
     "@tanstack/react-query": "^5.90.0",
@@ -19,6 +20,7 @@
     "zod": "^4.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.63.0",
     "@tailwindcss/postcss": "^4.1.0",
     "@testing-library/dom": "^10.4.2",
     "@testing-library/jest-dom": "^6.9.0",
