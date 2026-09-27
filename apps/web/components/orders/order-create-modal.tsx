@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { formatMoney, orderCreateSchema } from "@/lib/schemas/orders";
 import { useCreateOrder } from "@/hooks/use-orders";
 import { useProducts } from "@/hooks/use-catalog";
@@ -132,13 +132,31 @@ export function OrderCreateModal({
     }
   };
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="order-create-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    >
       <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b pb-3">
-          <h2 className="text-lg font-semibold text-gray-900">New Order Entry</h2>
+          <h2 id="order-create-modal-title" className="text-lg font-semibold text-gray-900">New Order Entry</h2>
           <button
             onClick={onClose}
+            aria-label="Close dialog"
             className="text-gray-400 hover:text-gray-500 focus:outline-none"
           >
             ✕
@@ -147,7 +165,7 @@ export function OrderCreateModal({
 
         <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto py-4 space-y-4">
           {formError && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
+            <div role="alert" className="rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
               {formError}
             </div>
           )}

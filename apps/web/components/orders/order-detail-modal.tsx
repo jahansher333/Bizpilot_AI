@@ -1,6 +1,6 @@
 "use client";
 
-import React from "react";
+import React, { useEffect } from "react";
 import { formatMoney, Order } from "@/lib/schemas/orders";
 
 interface OrderDetailModalProps {
@@ -25,12 +25,29 @@ export function OrderDetailModal({ isOpen, onClose, order }: OrderDetailModalPro
     }
   };
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="order-detail-modal-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+    >
       <div className="w-full max-w-2xl rounded-lg bg-white p-6 shadow-xl max-h-[90vh] flex flex-col">
         <div className="flex items-center justify-between border-b pb-3">
           <div className="flex items-center gap-3">
-            <h2 className="text-lg font-semibold text-gray-900">
+            <h2 id="order-detail-modal-title" className="text-lg font-semibold text-gray-900">
               Order {order.order_number}
             </h2>
             <span
@@ -43,6 +60,7 @@ export function OrderDetailModal({ isOpen, onClose, order }: OrderDetailModalPro
           </div>
           <button
             onClick={onClose}
+            aria-label="Close order details"
             className="text-gray-400 hover:text-gray-500 focus:outline-none"
           >
             ✕
