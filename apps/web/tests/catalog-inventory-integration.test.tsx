@@ -143,7 +143,7 @@ describe("Catalog & Inventory Integration Polish (UX-003)", () => {
     invView.unmount();
 
     // CatalogView has link to Inventory
-    const catView = renderWithQuery(<CatalogView organizationId="org-1" initialRole="owner" />);
+    const catView = renderWithQuery(<CatalogView organizationId="org-1" userRole="owner" />);
     const toInvLink = await catView.findByRole("link", { name: /check inventory stock/i });
     expect(toInvLink).toHaveAttribute("href", "/workspace/org-1/inventory");
     catView.unmount();

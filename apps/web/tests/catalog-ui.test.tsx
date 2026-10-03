@@ -649,7 +649,7 @@ describe("CAT-003: Catalog Frontend Slice", () => {
       });
 
       renderWithQueryClient(
-        <CatalogView organizationId="org-100" initialRole="owner" />
+        <CatalogView organizationId="org-100" userRole="owner" />
       );
 
       expect(screen.getByText("Catalog Management")).toBeInTheDocument();

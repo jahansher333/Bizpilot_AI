@@ -1,6 +1,6 @@
 import React from "react";
 import { describe, expect, it, vi, beforeEach } from "vitest";
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthProvider, useAuth } from "@/components/providers/auth-provider";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
@@ -11,10 +11,12 @@ import * as authHooks from "@/hooks/use-auth";
 
 // Mock next/navigation
 let currentPathname = "/workspace/org-123/orders";
+const replaceMock = vi.fn();
 vi.mock("next/navigation", () => ({
   usePathname: () => currentPathname,
   useRouter: () => ({
     push: vi.fn(),
+    replace: replaceMock,
   }),
 }));
 
@@ -186,6 +188,42 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
       // Press Escape
       fireEvent.keyDown(window, { key: "Escape" });
       expect(screen.queryByRole("dialog", { name: /navigation drawer/i })).not.toBeInTheDocument();
+    });
+
+    it("redirects signed-out users to login once the session check finishes (FIX-008)", async () => {
+      render(
+        <QueryProvider>
+          <AuthProvider>
+            <WorkspaceLayout orgId="org-123">
+              <div>Page Content</div>
+            </WorkspaceLayout>
+          </AuthProvider>
+        </QueryProvider>
+      );
+
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/login"));
+    });
+
+    it("redirects members away from workspaces they do not belong to (FIX-008)", async () => {
+      vi.spyOn(authHooks, "useAuth").mockReturnValue({
+        isLoading: false,
+        user: { id: "u-1", email: "a@b.pk", display_name: "A", status: "active" },
+        organizations: [{ id: "org-mine", role: "owner" }],
+        activeOrg: null,
+        activeRole: "owner",
+        logout: vi.fn(),
+      } as unknown as ReturnType<typeof authHooks.useAuth>);
+
+      render(
+        <QueryProvider>
+          <WorkspaceLayout orgId="org-someone-else">
+            <div>Page Content</div>
+          </WorkspaceLayout>
+        </QueryProvider>
+      );
+
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/onboarding"));
+      vi.restoreAllMocks();
     });
   });
 });

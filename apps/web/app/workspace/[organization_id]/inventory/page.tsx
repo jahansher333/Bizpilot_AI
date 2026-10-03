@@ -1,14 +1,14 @@
+"use client";
+
+import React from "react";
+import { useParams } from "next/navigation";
 import { InventoryView } from "@/components/inventory/inventory-view";
+import { useOrgRole } from "@/hooks/use-org-role";
 
-interface InventoryPageProps {
-  params: Promise<{ organization_id: string }>;
-  searchParams?: Promise<{ role?: string }>;
-}
+export default function InventoryPage() {
+  const params = useParams();
+  const orgId = typeof params?.organization_id === "string" ? params.organization_id : "";
+  const userRole = useOrgRole(orgId);
 
-export default async function InventoryPage({ params, searchParams }: InventoryPageProps) {
-  const { organization_id } = await params;
-  const search = searchParams ? await searchParams : undefined;
-  const role = search?.role || "owner";
-
-  return <InventoryView orgId={organization_id} userRole={role} />;
+  return <InventoryView orgId={orgId} userRole={userRole} />;
 }

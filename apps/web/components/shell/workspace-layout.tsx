@@ -1,6 +1,8 @@
 "use client";
 
 import React, { useState, useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useAuth } from "@/hooks/use-auth";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
 
@@ -11,6 +13,19 @@ interface WorkspaceLayoutProps {
 
 export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const router = useRouter();
+  const { isLoading, user, organizations } = useAuth();
+
+  // Route guard: signed-out users go to login; workspaces without an active membership
+  // go to onboarding. The backend still rejects every unauthorized request.
+  useEffect(() => {
+    if (isLoading) return;
+    if (!user) {
+      router.replace("/login");
+    } else if (!organizations.some((org) => org.id === orgId)) {
+      router.replace("/onboarding");
+    }
+  }, [isLoading, user, organizations, orgId, router]);
 
   // Close mobile menu on Escape key
   useEffect(() => {
@@ -24,7 +39,7 @@ export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
   }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex min-h-screen bg-slate-50">
+    <div className="flex min-h-screen bg-surface font-body-md text-on-surface antialiased">
       {/* Desktop Sidebar */}
       <WorkspaceSidebar
         orgId={orgId}
@@ -41,13 +56,13 @@ export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
         >
           {/* Backdrop */}
           <div
-            className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs transition-opacity"
+            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
             onClick={() => setIsMobileMenuOpen(false)}
             aria-hidden="true"
           />
 
           {/* Drawer Content */}
-          <div className="relative flex w-full max-w-xs flex-1 flex-col bg-white shadow-xl">
+          <div className="relative flex w-full max-w-xs flex-1 flex-col bg-surface-container-low shadow-xl">
             <div className="absolute right-0 top-0 -mr-12 pt-4">
               <button
                 type="button"
