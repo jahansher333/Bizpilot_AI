@@ -2,16 +2,21 @@
 
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import logging
 import secrets
+import smtplib
+import ssl
 import uuid
 from datetime import datetime, timedelta, timezone
+from email.message import EmailMessage
 from typing import Optional, Protocol, runtime_checkable
+from urllib.parse import urlencode
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.config import Settings, get_settings
+from app.core.config import EmailSettings, Settings, get_settings
 from app.core.errors import AuthenticationException, ValidationException
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.password import PasswordService
@@ -90,11 +95,92 @@ class DevelopmentLoggingPasswordResetDeliveryAdapter:
 LoggingPasswordResetDeliveryAdapter = DevelopmentLoggingPasswordResetDeliveryAdapter
 
 
-_global_delivery_adapter: PasswordResetDeliveryAdapter = DevelopmentLoggingPasswordResetDeliveryAdapter()
+class SmtpPasswordResetDeliveryAdapter:
+    """Sends the reset link by SMTP (FIX-004).
+
+    Sending is handed to a worker thread and not awaited, so the forgot-password response
+    time does not reveal whether an account exists and SMTP failures never change the
+    uniform response. Failures are logged without the token.
+    """
+
+    def __init__(self, settings: EmailSettings) -> None:
+        if not settings.smtp_enabled or not settings.from_address:
+            raise ValueError("SMTP delivery requires smtp_host and from_address")
+        self._settings = settings
+        self._pending: set[asyncio.Future[None]] = set()
+
+    def build_message(self, email: str, reset_token: str) -> EmailMessage:
+        base_url = self._settings.frontend_base_url.rstrip("/")
+        reset_link = f"{base_url}/reset-password?{urlencode({'token': reset_token})}"
+        message = EmailMessage()
+        message["Subject"] = "Reset your BizPilot AI password"
+        message["From"] = self._settings.from_address
+        message["To"] = email
+        message.set_content(
+            "We received a request to reset your BizPilot AI password.\n\n"
+            f"Open this link to choose a new password:\n{reset_link}\n\n"
+            "The link expires soon and can be used once. "
+            "If you did not request this, you can ignore this email.\n"
+        )
+        return message
+
+    def send_message(self, message: EmailMessage) -> None:
+        cfg = self._settings
+        context = ssl.create_default_context()
+        if cfg.smtp_security == "ssl":
+            client: smtplib.SMTP = smtplib.SMTP_SSL(
+                cfg.smtp_host, cfg.smtp_port, timeout=cfg.timeout_seconds, context=context
+            )
+        else:
+            client = smtplib.SMTP(cfg.smtp_host, cfg.smtp_port, timeout=cfg.timeout_seconds)
+        with client:
+            if cfg.smtp_security == "starttls":
+                client.starttls(context=context)
+            if cfg.smtp_username and cfg.smtp_password is not None:
+                client.login(cfg.smtp_username, cfg.smtp_password.get_secret_value())
+            client.send_message(message)
+
+    async def deliver_password_reset_token(
+        self,
+        email: str,
+        reset_token: str,
+    ) -> None:
+        message = self.build_message(email, reset_token)
+        future = asyncio.get_running_loop().run_in_executor(None, self.send_message, message)
+        self._pending.add(future)
+        future.add_done_callback(self._on_sent)
+
+    def _on_sent(self, future: asyncio.Future[None]) -> None:
+        self._pending.discard(future)
+        exc = None if future.cancelled() else future.exception()
+        if exc is not None:
+            # Never log the token, link, or SMTP credentials.
+            logger.error(
+                "Password recovery email delivery failed",
+                extra={"error_type": type(exc).__name__},
+            )
+
+    async def wait_for_pending(self) -> None:
+        """Await in-flight sends (used by tests and graceful shutdown)."""
+        if self._pending:
+            await asyncio.gather(*list(self._pending), return_exceptions=True)
+
+
+def build_delivery_adapter(settings: Settings) -> PasswordResetDeliveryAdapter:
+    """Select SMTP delivery when configured; otherwise the local development logger."""
+    if settings.email.smtp_enabled:
+        return SmtpPasswordResetDeliveryAdapter(settings.email)
+    return DevelopmentLoggingPasswordResetDeliveryAdapter()
+
+
+_global_delivery_adapter: Optional[PasswordResetDeliveryAdapter] = None
 
 
 def get_delivery_adapter() -> PasswordResetDeliveryAdapter:
     """Get the active password reset delivery adapter."""
+    global _global_delivery_adapter
+    if _global_delivery_adapter is None:
+        _global_delivery_adapter = build_delivery_adapter(get_settings())
     return _global_delivery_adapter
 
 
@@ -167,12 +253,19 @@ class PasswordRecoveryService:
         except Exception:
             raise
 
-        # 3. Separate durable token creation from delivery adapter invocation
+        # 3. Separate durable token creation from delivery adapter invocation.
+        # Delivery errors must not change the uniform response (non-enumeration).
         if raw_token is not None and recipient_email is not None:
-            await self._delivery_adapter.deliver_password_reset_token(
-                recipient_email,
-                raw_token,
-            )
+            try:
+                await self._delivery_adapter.deliver_password_reset_token(
+                    recipient_email,
+                    raw_token,
+                )
+            except Exception as exc:
+                logger.error(
+                    "Password recovery delivery dispatch failed",
+                    extra={"error_type": type(exc).__name__},
+                )
 
         return ForgotPasswordResponse()
 

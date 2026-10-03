@@ -328,3 +328,37 @@ async def test_reset_vs_concurrent_refresh_race_live_postgresql(
         )
         active_tokens = (await db_session.execute(stmt_active)).scalars().all()
         assert len(active_tokens) == 0, f"Expected 0 active tokens, found {len(active_tokens)}"
+
+
+class _FailingDeliveryAdapter:
+    async def deliver_password_reset_token(self, email: str, reset_token: str) -> None:
+        raise OSError("SMTP relay unavailable")
+
+
+@pytest.mark.asyncio
+async def test_forgot_password_delivery_failure_keeps_uniform_response(
+    auth_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """Delivery failure must not turn into a 500 that reveals the account exists (FIX-004)."""
+    set_delivery_adapter(_FailingDeliveryAdapter())
+    try:
+        email = f"deliveryfail_{uuid.uuid4().hex[:8]}@example.com"
+        await auth_client.post(
+            "/api/auth/register",
+            json={"email": email, "password": "InitialPassword123!", "display_name": "Delivery Fail"},
+        )
+        existing = await auth_client.post("/api/auth/forgot-password", json={"email": email})
+        missing = await auth_client.post(
+            "/api/auth/forgot-password", json={"email": f"missing_{email}"}
+        )
+        assert existing.status_code == missing.status_code == 200
+        assert existing.json() == missing.json()
+
+        user = (await db_session.execute(select(User).where(User.email_normalized == email))).scalar_one()
+        tokens = (
+            await db_session.execute(select(PasswordResetToken).where(PasswordResetToken.user_id == user.id))
+        ).scalars().all()
+        assert len(tokens) == 1
+    finally:
+        set_delivery_adapter(InMemoryPasswordResetDeliveryAdapter())

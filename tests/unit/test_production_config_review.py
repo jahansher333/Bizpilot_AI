@@ -30,6 +30,13 @@ def _valid_production_payload() -> dict:
         "environment": "production",
         "debug": False,
         "cors_origins": ["https://app.bizpilot.invalid"],
+        "email": {
+            "smtp_host": "smtp.mail.invalid",
+            "smtp_username": "bizpilot-mailer",
+            "smtp_password": "Sm7p_Relay_Credential_2026_Long",
+            "from_address": "no-reply@bizpilot.invalid",
+            "frontend_base_url": "https://app.bizpilot.invalid",
+        },
         "database": {
             "url": "postgresql://prod_user_admin:StrongSecretPass987654321@postgres.prod.internal:5432/bizpilot_prod?sslmode=require",
         },

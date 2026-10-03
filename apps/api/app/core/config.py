@@ -80,6 +80,36 @@ class AISettings(BaseModel):
         return self
 
 
+class EmailSettings(BaseModel):
+    """Outbound SMTP used for password-recovery email. Unset smtp_host disables real delivery."""
+
+    model_config = ConfigDict(hide_input_in_errors=True, extra="forbid")
+    smtp_host: str | None = None
+    smtp_port: int = Field(default=587, ge=1, le=65535)
+    smtp_username: str | None = None
+    smtp_password: SecretStr | None = None
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    from_address: str | None = None
+    timeout_seconds: float = Field(default=10.0, ge=1.0, le=60.0)
+    # Public frontend origin used to build the reset link sent by email.
+    frontend_base_url: str = "http://localhost:3000"
+
+    @property
+    def smtp_enabled(self) -> bool:
+        return bool(self.smtp_host and self.smtp_host.strip())
+
+    @model_validator(mode="after")
+    def validate_smtp(self) -> "EmailSettings":
+        if self.smtp_enabled and not (self.from_address and "@" in self.from_address):
+            raise ValueError("email from address is required when SMTP is configured")
+        if bool(self.smtp_username) != bool(self.smtp_password and self.smtp_password.get_secret_value()):
+            raise ValueError("SMTP username and password must be configured together")
+        parsed = urlsplit(self.frontend_base_url)
+        if parsed.scheme not in {"http", "https"} or not parsed.hostname:
+            raise ValueError("email frontend base URL must be an absolute http(s) URL")
+        return self
+
+
 class LoggingSettings(BaseModel):
     model_config = ConfigDict(hide_input_in_errors=True, extra="forbid")
     level: Literal["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"] = "INFO"
@@ -106,6 +136,7 @@ class Settings(BaseSettings):
     database: DatabaseSettings
     auth: AuthenticationSettings
     ai: AISettings = Field(default_factory=AISettings)
+    email: EmailSettings = Field(default_factory=EmailSettings)
     logging: LoggingSettings = Field(default_factory=LoggingSettings)
 
     @classmethod
@@ -134,6 +165,10 @@ class Settings(BaseSettings):
                 "bizpilot_auth__login_max_failures",
                 "bizpilot_auth__recovery_max_requests",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
+                "bizpilot_email__smtp_host", "bizpilot_email__smtp_port",
+                "bizpilot_email__smtp_username", "bizpilot_email__smtp_password",
+                "bizpilot_email__smtp_security", "bizpilot_email__from_address",
+                "bizpilot_email__timeout_seconds", "bizpilot_email__frontend_base_url",
 
                 "bizpilot_logging__level", "bizpilot_logging__json_logs",
             }
@@ -180,6 +215,14 @@ class Settings(BaseSettings):
             self._reject_placeholder("previous authentication signing secret", prev)
         if self.ai.enabled and self.ai.api_key is not None:
             self._reject_placeholder("AI API key", self.ai.api_key)
+        if not self.email.smtp_enabled:
+            raise ValueError("production requires SMTP for password-recovery email")
+        if self.email.smtp_security == "none":
+            raise ValueError("production SMTP must use TLS (starttls or ssl)")
+        if self.email.smtp_password is not None:
+            self._reject_placeholder_text("SMTP password", self.email.smtp_password.get_secret_value())
+        if urlsplit(self.email.frontend_base_url).scheme != "https":
+            raise ValueError("production email frontend base URL must use https")
         return self
 
     @classmethod

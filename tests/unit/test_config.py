@@ -19,19 +19,32 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
             monkeypatch.delenv(name, raising=False)
 
 
+def production_email() -> dict[str, object]:
+    return {
+        "smtp_host": "smtp.mail.invalid",
+        "smtp_username": "bizpilot-mailer",
+        "smtp_password": "Sm7p_Relay_Credential_2026_Long",
+        "from_address": "no-reply@bizpilot.invalid",
+        "frontend_base_url": "https://app.bizpilot.invalid",
+    }
+
+
 def values(mode: str = "local") -> dict[str, object]:
     url = "postgresql://user:db-secret-password@localhost:5432/bizpilot"
     cors_origins = ["http://localhost:3000"]
+    email: dict[str, object] = {}
     if mode == "production":
         url = (
             "postgresql://runtime_app:S3cure_Db_Credential_2026_Long"
             "@db.invalid:5432/bizpilot?sslmode=verify-full"
         )
         cors_origins = ["https://app.bizpilot.invalid"]
+        email = production_email()
     return {
         "environment": mode,
         "debug": False,
         "cors_origins": cors_origins,
+        "email": email,
         "database": {"url": url},
         "auth": {"signing_secret": "secure-runtime-signing-secret-over-32-characters"},
         "ai": {"enabled": False},
@@ -151,6 +164,47 @@ def test_cors_origins_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> 
     config = values("production")
     del config["cors_origins"]
     assert Settings(**config).cors_origins == ["https://app.bizpilot.invalid"]
+
+
+def test_email_defaults_disable_smtp() -> None:
+    settings = Settings(**values())
+    assert settings.email.smtp_enabled is False
+    assert settings.email.smtp_security == "starttls"
+
+
+@pytest.mark.parametrize(
+    "email",
+    [
+        {"smtp_host": "smtp.mail.invalid"},
+        {"smtp_host": "smtp.mail.invalid", "from_address": "no-reply@x.invalid", "smtp_username": "u"},
+        {"frontend_base_url": "not-a-url"},
+    ],
+)
+def test_email_rejects_incomplete_configuration(email: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(**(values() | {"email": email}))
+
+
+@pytest.mark.parametrize(
+    "override",
+    [
+        {"smtp_host": None},
+        {"smtp_security": "none"},
+        {"frontend_base_url": "http://app.bizpilot.invalid"},
+        {"smtp_password": "change-me-placeholder"},
+    ],
+)
+def test_production_rejects_unsafe_email(override: dict[str, object]) -> None:
+    config = values("production")
+    config["email"] = production_email() | override
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_smtp_password_redacted_from_representations() -> None:
+    settings = Settings(**values("production"))
+    output = f"{settings!r} {settings.model_dump()}"
+    assert "Sm7p_Relay_Credential_2026_Long" not in output
 
 
 def test_production_rejects_insecure_transport() -> None:
