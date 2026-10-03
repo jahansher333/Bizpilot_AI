@@ -11,10 +11,12 @@ function QueryProbe() {
 }
 
 describe("application shell", () => {
-  it("renders the initial workspace route", () => {
+  it("renders the landing page with sign-up and sign-in entry points (R2)", () => {
     const view = render(<HomePage />);
-    expect(view.getByRole("heading", { name: "Business workspace" })).toBeInTheDocument();
-    expect(view.getByText("Your authenticated workspace is being prepared")).toBeInTheDocument();
+    expect(view.getByRole("heading", { level: 1 })).toHaveTextContent(/run your business/i);
+    expect(view.getByRole("link", { name: /start using bizpilot/i })).toHaveAttribute("href", "/register");
+    expect(view.getAllByRole("link", { name: /^sign in$/i })[0]).toHaveAttribute("href", "/login");
+    expect(view.getByRole("figure", { name: /example of a bizpilot workspace/i })).toBeInTheDocument();
   });
 
   it("provides a shared query client", () => {

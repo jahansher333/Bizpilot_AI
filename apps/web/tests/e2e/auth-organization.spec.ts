@@ -14,9 +14,10 @@ test.describe('Authentication & Organization Setup (HARD-002)', () => {
     await page.goto('/register');
     await expect(page.locator('h1, h2')).toContainText(/Create your account|Register|BizPilot/i);
 
-    await page.fill('input[name="display_name"], input[placeholder*="Name" i]', 'Tariq Mahmood');
-    await page.fill('input[type="email"]', 'tariq@lahore.pk');
-    await page.fill('input[type="password"]', 'SecurePassword123!');
+    await page.getByLabel('Full name').fill('Tariq Mahmood');
+    await page.getByLabel('Email address').fill('tariq@lahore.pk');
+    await page.getByLabel('Password', { exact: true }).fill('SecurePassword123!');
+    await page.getByLabel('Confirm password').fill('SecurePassword123!');
 
     await page.click('button[type="submit"]');
     // Successful submission redirects or shows confirmation

@@ -56,7 +56,7 @@ export function WorkspaceSidebar({ orgId, onNavigate, collapsed = false, onToggl
       </div>
 
       <Link
-        href="/onboarding"
+        href="/workspaces"
         className="ws"
         onClick={onNavigate}
         aria-label={`Switch workspace: ${org?.display_name ?? "Workspace"}, ${ROLE_LABEL[role]}`}
@@ -112,7 +112,7 @@ export function WorkspaceSidebar({ orgId, onNavigate, collapsed = false, onToggl
               </div>
             </div>
             <div className="menu-sep" />
-            <Link className="menu-item" role="menuitem" href="/onboarding" onClick={onNavigate}>
+            <Link className="menu-item" role="menuitem" href="/workspaces" onClick={onNavigate}>
               <Icon name="updown" />
               Switch workspace
             </Link>

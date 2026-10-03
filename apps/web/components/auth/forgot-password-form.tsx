@@ -1,132 +1,155 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { ForgotPasswordSchema } from "@/lib/schemas/auth";
-import { forgotPasswordRequest } from "@/lib/api/auth";
-import { BizPilotLogo } from "@/components/ui/bizpilot-logo";
+import { ApiError, forgotPasswordRequest } from "@/lib/api/auth";
+import { Icon } from "@/components/ui/icon";
+import { AuthCardShell } from "@/components/auth/auth-card-shell";
 
+const RESEND_SECONDS = 60;
+
+/** Design canvas "04 · Forgot password": request, sent (same message for every email), error. */
 export function ForgotPasswordForm() {
   const [email, setEmail] = useState("");
   const [validationError, setValidationError] = useState<string | null>(null);
   const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const timer = setTimeout(() => setCooldown((s) => s - 1), 1000);
+    return () => clearTimeout(timer);
+  }, [cooldown]);
+
+  async function send() {
     setValidationError(null);
     setServerError(null);
-    setSuccessMessage(null);
-
-    const parseResult = ForgotPasswordSchema.safeParse({ email });
-    if (!parseResult.success) {
-      setValidationError(parseResult.error.issues[0]?.message || "Invalid email");
+    const parsed = ForgotPasswordSchema.safeParse({ email });
+    if (!parsed.success) {
+      setValidationError(parsed.error.issues[0]?.message || "Enter a valid email address");
       return;
     }
-
     setIsSubmitting(true);
     try {
-      const res = await forgotPasswordRequest({ email });
-      setSuccessMessage(
-        res.message ||
-          "If an eligible account exists for this email, password recovery instructions have been sent."
-      );
+      await forgotPasswordRequest(parsed.data);
+      setSentTo(parsed.data.email);
+      setCooldown(RESEND_SECONDS);
     } catch (err: unknown) {
-      const message =
-        err instanceof Error
-          ? err.message
-          : "An unexpected error occurred. Please try again.";
-      setServerError(message);
+      if (err instanceof ApiError && err.status === 429) {
+        setServerError(err.message);
+      } else {
+        setServerError("You’re offline or our server didn’t respond. Your email is kept — try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  if (sentTo) {
+    const mins = Math.floor(cooldown / 60);
+    const secs = String(cooldown % 60).padStart(2, "0");
+    return (
+      <AuthCardShell>
+        <span className="dlg-icon ok pop-in">
+          <Icon name="check" size="lg" className="check-anim" style={{ strokeWidth: 2.2 }} />
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }} role="status">
+          <h1 className="t-h2">Check your email</h1>
+          <p className="t-body-sm secondary">
+            If an account exists for <b style={{ color: "var(--text-primary)", fontWeight: 500 }}>{sentTo}</b>, we’ve sent recovery
+            instructions. The link expires soon and works once.
+          </p>
+        </div>
+        <div className="well" style={{ padding: "12px 14px" }}>
+          <p className="t-body-sm secondary">Nothing after a few minutes? Check your spam folder, or make sure you used the email you sign in with.</p>
+        </div>
+        <button type="button" className="btn btn-secondary btn-block" disabled={cooldown > 0 || isSubmitting} onClick={send}>
+          {cooldown > 0 ? `Resend in ${mins}:${secs}` : "Resend instructions"}
+        </button>
+        {serverError && (
+          <div className="alert a-danger" role="alert">
+            <Icon name="alert" />
+            <div>{serverError}</div>
+          </div>
+        )}
+        <Link className="link t-body-sm" href="/login" style={{ alignSelf: "center" }}>
+          Back to sign in
+        </Link>
+      </AuthCardShell>
+    );
+  }
+
   return (
-    <div className="w-full max-w-md rounded-2xl border border-surface-container-high/60 bg-surface-container-lowest p-6 sm:p-8 shadow-sm relative overflow-hidden">
-      {/* Accent Micro-Layer */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-tertiary" />
-
-      <div className="mb-6 text-center">
-        <div className="flex justify-center mb-3">
-          <BizPilotLogo size="lg" />
-        </div>
-        <h1 className="font-headline-lg text-2xl font-bold tracking-tight text-on-surface">Reset your password</h1>
-        <p className="mt-1 font-body-sm text-xs text-on-surface-variant">
-          Enter your registered email and we&apos;ll send recovery instructions
-        </p>
+    <AuthCardShell>
+      <span className="dlg-icon neutral">
+        <Icon name="lock" size="lg" />
+      </span>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <h1 className="t-h2">Reset your password</h1>
+        <p className="t-body-sm secondary">Enter the email you use for BizPilot. If an account exists, we’ll send recovery instructions.</p>
       </div>
-
-      {successMessage && (
-        <div
-          role="status"
-          className="mb-5 rounded-xl border border-tertiary/20 bg-tertiary-container/15 p-4 text-xs text-tertiary font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">check_circle</span>
-          <span>{successMessage}</span>
-        </div>
-      )}
-
       {serverError && (
-        <div
-          role="alert"
-          className="mb-5 rounded-xl border border-error/20 bg-error-container/15 p-3 text-xs text-error font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">error</span>
-          <span>{serverError}</span>
-        </div>
-      )}
-
-      {validationError && (
-        <div
-          role="alert"
-          className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">warning</span>
-          <span>{validationError}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <div>
-          <label htmlFor="email" className="block font-label-caps text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-            Business Email Address *
-          </label>
-          <div className="relative mt-1.5">
-            <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-outline text-[18px]">
-              mail
-            </span>
-            <input
-              id="email"
-              name="email"
-              type="email"
-              autoComplete="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              disabled={isSubmitting}
-              required
-              className="w-full h-11 pl-9 pr-3 bg-surface-container-lowest text-on-surface placeholder:text-outline text-sm rounded-lg border border-outline-variant/40 focus:border-primary focus:ring-2 focus:ring-primary/10 focus:outline-none transition-all disabled:opacity-50 font-body-sm shadow-xs"
-              placeholder="e.g. jahansherkhan9876@gmail.com"
-            />
+        <div className="alert a-danger" role="alert">
+          <Icon name="alert" />
+          <div>
+            <div className="a-t">We couldn’t send that request</div>
+            {serverError}
           </div>
         </div>
-
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="w-full h-11 bg-primary hover:bg-primary-container text-on-primary rounded-lg text-sm font-semibold shadow-sm transition-all flex items-center justify-center gap-2 active:scale-[0.99] disabled:opacity-50 font-body-sm"
-        >
-          {isSubmitting ? "Sending instructions..." : "Send recovery link →"}
+      )}
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          void send();
+        }}
+        noValidate
+        style={{ display: "flex", flexDirection: "column", gap: 20 }}
+      >
+        <div className="field">
+          <label className="label" htmlFor="fp-email">
+            Email address
+          </label>
+          <input
+            className={`input${validationError ? " is-error" : ""}`}
+            id="fp-email"
+            type="email"
+            autoComplete="email"
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            aria-invalid={!!validationError}
+            aria-describedby={validationError ? "fp-email-err" : undefined}
+            disabled={isSubmitting}
+            required
+          />
+          {validationError && (
+            <span className="err" id="fp-email-err" role="alert">
+              <Icon name="alert" size="sm" />
+              {validationError}
+            </span>
+          )}
+        </div>
+        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={isSubmitting} aria-busy={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <span className="spinner" />
+              Sending…
+            </>
+          ) : serverError ? (
+            <>
+              <Icon name="refresh" />
+              Try again
+            </>
+          ) : (
+            "Send recovery link"
+          )}
         </button>
       </form>
-
-      <div className="mt-6 text-center font-body-sm text-xs text-on-surface-variant">
-        Remember your password?{" "}
-        <Link href="/login" className="font-semibold text-primary hover:text-primary-container hover:underline">
-          Sign in
-        </Link>
-      </div>
-    </div>
+      <Link className="link t-body-sm" href="/login" style={{ alignSelf: "center" }}>
+        Back to sign in
+      </Link>
+    </AuthCardShell>
   );
 }

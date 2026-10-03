@@ -24,13 +24,13 @@ export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
   const drawerCloseRef = useRef<HTMLButtonElement>(null);
 
   // Route guard: signed-out users go to login; workspaces without an active membership
-  // go to onboarding. The backend still rejects every unauthorized request.
+  // go to the workspace chooser. The backend still rejects every unauthorized request.
   useEffect(() => {
     if (isLoading) return;
     if (!user) {
       router.replace("/login");
     } else if (!organizations.some((org) => org.id === orgId)) {
-      router.replace("/onboarding");
+      router.replace("/workspaces");
     }
   }, [isLoading, user, organizations, orgId, router]);
 

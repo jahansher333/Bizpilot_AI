@@ -63,7 +63,7 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
       for (const name of [/dashboard/i, /^orders/i, /^products/i, /^inventory/i, /^customers/i, /^payments/i, /^expenses/i, /^bizpilot ai\s*read-only/i, /^team/i]) {
         expect(screen.getByRole("link", { name })).toBeInTheDocument();
       }
-      expect(screen.getByRole("link", { name: /switch workspace: khan traders, owner/i })).toHaveAttribute("href", "/onboarding");
+      expect(screen.getByRole("link", { name: /switch workspace: khan traders, owner/i })).toHaveAttribute("href", "/workspaces");
       expect(screen.getByText("Read-only")).toBeInTheDocument();
     });
 
@@ -256,7 +256,7 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
         </QueryProvider>
       );
 
-      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/onboarding"));
+      await waitFor(() => expect(replaceMock).toHaveBeenCalledWith("/workspaces"));
       vi.restoreAllMocks();
     });
   });

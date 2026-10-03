@@ -146,7 +146,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       setOrganizations([]);
       setActiveOrgId(null);
       if (!window.location.pathname.startsWith("/login")) {
-        window.location.assign("/login");
+        window.location.assign("/login?expired=1");
       }
     }
 

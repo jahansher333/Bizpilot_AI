@@ -4,6 +4,8 @@ import React, { useState } from "react";
 import { useRouter } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { useAcceptInvitation, useMyInvitations } from "@/hooks/use-team";
+import { Icon } from "@/components/ui/icon";
+import { initials } from "@/components/ui/logo";
 
 /**
  * Lists invitations addressed to the signed-in user and lets them join (FIX-006).
@@ -31,38 +33,51 @@ export function PendingInvitations() {
   };
 
   return (
-    <section
-      aria-labelledby="pending-invitations-heading"
-      className="w-full max-w-xl mb-6 rounded-xl border border-surface-container-high/60 bg-surface-container-lowest p-5 shadow-xs"
-    >
-      <h2 id="pending-invitations-heading" className="font-body-md text-base font-semibold text-on-surface mb-3">
+    <section aria-labelledby="pending-invitations-heading" style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+      <h2 id="pending-invitations-heading" className="t-h3">
         Pending invitations
       </h2>
-      <ul className="space-y-2">
-        {invitations.map((invite) => (
+      <ul className="card stagger" style={{ overflow: "hidden", borderColor: "var(--brand-border)" }}>
+        {invitations.map((invite, i) => (
           <li
             key={invite.membership_id}
-            className="flex items-center justify-between gap-3 rounded-lg bg-surface-container-low px-3 py-2"
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 14,
+              padding: "14px 18px",
+              borderBottom: i < invitations.length - 1 ? "1px solid var(--border)" : 0,
+              flexWrap: "wrap",
+              background: "var(--brand-tint)",
+            }}
           >
-            <div className="min-w-0">
-              <p className="truncate text-sm font-medium text-on-surface">{invite.organization_display_name}</p>
-              <p className="text-xs capitalize text-on-surface-variant">Role: {invite.role}</p>
+            <span className="ws-mark" style={{ width: 40, height: 40, fontSize: 14 }}>
+              {initials(invite.organization_display_name)}
+            </span>
+            <div style={{ flex: 1, minWidth: 180, display: "flex", flexDirection: "column", gap: 2 }}>
+              <span className="t-h4">{invite.organization_display_name}</span>
+              <span className="t-caption" style={{ textTransform: "capitalize" }}>
+                Invited as {invite.role}
+              </span>
             </div>
             <button
               type="button"
+              className="btn btn-primary"
               disabled={acceptMutation.isPending}
               onClick={() => handleAccept(invite.organization_id)}
-              className="shrink-0 rounded-lg bg-primary px-3 py-1.5 text-sm font-medium text-on-primary hover:bg-primary-container disabled:opacity-60"
+              aria-label={`Accept invitation to ${invite.organization_display_name}`}
             >
+              <Icon name="check" />
               Accept
             </button>
           </li>
         ))}
       </ul>
       {error && (
-        <p role="alert" className="mt-3 text-sm text-error">
-          {error}
-        </p>
+        <div className="alert a-danger" role="alert">
+          <Icon name="alert" />
+          <div>{error}</div>
+        </div>
       )}
     </section>
   );

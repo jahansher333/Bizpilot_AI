@@ -4,156 +4,156 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { ResetPasswordSchema } from "@/lib/schemas/auth";
-import { resetPasswordSubmit } from "@/lib/api/auth";
-import { BizPilotLogo } from "@/components/ui/bizpilot-logo";
+import { ApiError, resetPasswordSubmit } from "@/lib/api/auth";
+import { Icon } from "@/components/ui/icon";
+import { AuthCardShell } from "@/components/auth/auth-card-shell";
+import { FieldError, PasswordChecklist, PASSWORD_MIN_LENGTH } from "@/components/auth/password-checks";
 
+type Phase = "form" | "done" | "expired";
+
+/** Design canvas "05 · Reset password": new password, updated, expired link. */
 export function ResetPasswordForm() {
   const searchParams = useSearchParams();
-  const initialToken = searchParams?.get("token") || "";
+  const linkToken = searchParams?.get("token") || "";
 
-  const [token, setToken] = useState(initialToken);
+  const [token, setToken] = useState(linkToken);
   const [newPassword, setNewPassword] = useState("");
-  const [validationError, setValidationError] = useState<string | null>(null);
-  const [serverError, setServerError] = useState<string | null>(null);
-  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [confirm, setConfirm] = useState("");
+  const [error, setError] = useState<string | null>(null);
+  const [phase, setPhase] = useState<Phase>("form");
   const [isSubmitting, setIsSubmitting] = useState(false);
+
+  const mismatch = confirm.length > 0 && confirm !== newPassword;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    setValidationError(null);
-    setServerError(null);
-    setSuccessMessage(null);
-
-    const parseResult = ResetPasswordSchema.safeParse({
-      token,
-      new_password: newPassword,
-    });
-
-    if (!parseResult.success) {
-      setValidationError(parseResult.error.issues[0]?.message || "Invalid input");
+    setError(null);
+    const parsed = ResetPasswordSchema.safeParse({ token: token.trim(), new_password: newPassword });
+    if (!parsed.success) {
+      setError(parsed.error.issues[0]?.message || "Invalid input");
       return;
     }
-
+    if (confirm !== newPassword) {
+      setError("Passwords don’t match yet");
+      return;
+    }
     setIsSubmitting(true);
     try {
-      const res = await resetPasswordSubmit({
-        token,
-        new_password: newPassword,
-      });
-      setSuccessMessage(
-        res.message || "Password reset successfully. Please log in with your new password."
-      );
+      await resetPasswordSubmit(parsed.data);
+      setPhase("done");
     } catch (err: unknown) {
-      const message =
-        err instanceof Error ? err.message : "Unable to reset password. Please check your token.";
-      setServerError(message);
+      if (err instanceof ApiError && err.status === 401) {
+        setPhase("expired");
+      } else {
+        setError(err instanceof Error && err.message ? err.message : "Unable to update your password. Please try again.");
+      }
     } finally {
       setIsSubmitting(false);
     }
   }
 
+  if (phase === "done") {
+    return (
+      <AuthCardShell>
+        <span className="dlg-icon ok pop-in">
+          <Icon name="check" size="lg" className="check-anim" style={{ strokeWidth: 2.2 }} />
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }} role="status">
+          <h1 className="t-h2">Password updated</h1>
+          <p className="t-body-sm secondary">You’ve been signed out of other devices. Use your new password to sign in.</p>
+        </div>
+        <Link className="btn btn-primary btn-block btn-lg" href="/login">
+          Continue to sign in
+        </Link>
+      </AuthCardShell>
+    );
+  }
+
+  if (phase === "expired") {
+    return (
+      <AuthCardShell>
+        <span className="dlg-icon warn">
+          <Icon name="alert" size="lg" />
+        </span>
+        <div style={{ display: "flex", flexDirection: "column", gap: 6 }} role="alert">
+          <h1 className="t-h2">This link has expired</h1>
+          <p className="t-body-sm secondary">Reset links expire after a short time and work only once. Request a new one to continue.</p>
+        </div>
+        <Link className="btn btn-primary btn-block btn-lg" href="/forgot-password">
+          Request a new link
+        </Link>
+      </AuthCardShell>
+    );
+  }
+
   return (
-    <div className="w-full max-w-md rounded-2xl border border-surface-container-high/60 bg-surface-container-lowest p-6 sm:p-8 shadow-sm relative overflow-hidden">
-      {/* Accent Micro-Layer */}
-      <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-tertiary" />
-
-      <div className="mb-6 text-center">
-        <div className="flex justify-center mb-3">
-          <BizPilotLogo size="lg" />
-        </div>
-        <h1 className="font-headline-lg text-2xl font-bold tracking-tight text-on-surface">Set new password</h1>
-        <p className="mt-1 font-body-sm text-xs text-on-surface-variant">
-          Enter your recovery token and choose a new secure password
-        </p>
+    <AuthCardShell>
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <h1 className="t-h2">Choose a new password</h1>
+        <p className="t-body-sm secondary">Use at least {PASSWORD_MIN_LENGTH} characters you don’t use anywhere else.</p>
       </div>
-
-      {successMessage && (
-        <div
-          role="status"
-          className="mb-5 rounded-xl border border-tertiary/20 bg-tertiary-container/15 p-4 text-xs text-tertiary font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">check_circle</span>
-          <span>
-            {successMessage}{" "}
-            <Link href="/login" className="font-semibold underline hover:text-tertiary-fixed-dim">
-              Proceed to Sign in
-            </Link>
-          </span>
+      {error && (
+        <div className="alert a-danger" role="alert">
+          <Icon name="alert" />
+          <div>{error}</div>
         </div>
       )}
-
-      {serverError && (
-        <div
-          role="alert"
-          className="mb-5 rounded-xl border border-error/20 bg-error-container/15 p-3 text-xs text-error font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">error</span>
-          <span>{serverError}</span>
-        </div>
-      )}
-
-      {validationError && (
-        <div
-          role="alert"
-          className="mb-5 rounded-xl border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 font-medium flex items-center gap-2"
-        >
-          <span className="material-symbols-outlined text-[16px]">warning</span>
-          <span>{validationError}</span>
-        </div>
-      )}
-
-      <form onSubmit={handleSubmit} className="space-y-4" noValidate>
-        <div>
-          <label htmlFor="token" className="block font-label-caps text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
-            Reset token
-          </label>
-          <input
-            id="token"
-            name="token"
-            type="text"
-            value={token}
-            onChange={(e) => setToken(e.target.value)}
-            disabled={isSubmitting}
-            required
-            className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm font-mono text-on-surface shadow-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:bg-surface-container-low transition-all font-data-cell"
-            placeholder="Paste reset token"
-          />
-        </div>
-
-        <div>
-          <label htmlFor="new_password" className="block font-label-caps text-xs font-semibold uppercase text-on-surface-variant tracking-wider">
+      <form onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+        {!linkToken && (
+          <div className="field">
+            <label className="label" htmlFor="rp-token">
+              Reset token
+            </label>
+            <input className="input mono" id="rp-token" value={token} onChange={(e) => setToken(e.target.value)} disabled={isSubmitting} required />
+            <span className="hint">Paste the token from your recovery email, or open the link in that email.</span>
+          </div>
+        )}
+        <div className="field">
+          <label className="label" htmlFor="rp-1">
             New password
           </label>
           <input
-            id="new_password"
-            name="new_password"
+            className="input"
+            id="rp-1"
             type="password"
             autoComplete="new-password"
             value={newPassword}
             onChange={(e) => setNewPassword(e.target.value)}
+            aria-describedby="rp-req"
             disabled={isSubmitting}
             required
-            className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface shadow-xs focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:bg-surface-container-low transition-all"
           />
-          <p className="mt-1 font-body-sm text-xs text-outline">
-            Must be at least 12 characters in length.
-          </p>
+          <PasswordChecklist id="rp-req" password={newPassword} />
         </div>
-
-        <button
-          type="submit"
-          disabled={isSubmitting}
-          className="mt-2 flex w-full items-center justify-center rounded-lg bg-primary px-4 py-2.5 font-body-sm text-sm font-semibold text-on-primary shadow-sm hover:bg-primary-container active:scale-[0.99] focus:outline-none focus:ring-2 focus:ring-primary/20 disabled:opacity-50 transition-all"
-        >
-          {isSubmitting ? "Resetting password..." : "Update password"}
+        <div className="field">
+          <label className="label" htmlFor="rp-2">
+            Confirm new password
+          </label>
+          <input
+            className={`input${mismatch ? " is-error" : ""}`}
+            id="rp-2"
+            type="password"
+            autoComplete="new-password"
+            value={confirm}
+            onChange={(e) => setConfirm(e.target.value)}
+            aria-invalid={mismatch}
+            aria-describedby={mismatch ? "rp-2e" : undefined}
+            disabled={isSubmitting}
+            required
+          />
+          {mismatch && <FieldError id="rp-2e">Passwords don’t match yet</FieldError>}
+        </div>
+        <button type="submit" className="btn btn-primary btn-block btn-lg" disabled={isSubmitting} aria-busy={isSubmitting}>
+          {isSubmitting ? (
+            <>
+              <span className="spinner" />
+              Updating…
+            </>
+          ) : (
+            "Update password"
+          )}
         </button>
       </form>
-
-      <div className="mt-6 text-center font-body-sm text-xs text-on-surface-variant">
-        <Link href="/login" className="font-semibold text-primary hover:text-primary-container hover:underline">
-          Return to Sign in
-        </Link>
-      </div>
-    </div>
+    </AuthCardShell>
   );
 }

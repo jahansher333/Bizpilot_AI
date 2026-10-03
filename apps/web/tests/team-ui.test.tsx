@@ -191,7 +191,7 @@ describe("Pending invitations (FIX-006)", () => {
     renderWithClient(<PendingInvitations />);
     expect(await screen.findByText("Karachi Traders")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "Accept" }));
+    fireEvent.click(screen.getByRole("button", { name: /accept invitation to karachi traders/i }));
 
     await waitFor(() => expect(pushMock).toHaveBeenCalledWith("/workspace/org-9"));
     expect(orgApi.acceptInvitation).toHaveBeenCalledWith("org-9", undefined);
