@@ -32,6 +32,8 @@ from app.modules.organizations.schemas import (
     PendingInvitationResponse,
     UpdateMemberRoleRequest,
 )
+from app.modules.trace.enums import TraceAction, TraceOutcome
+from app.modules.trace.service import InternalTraceService
 
 
 class OrganizationService:
@@ -44,6 +46,23 @@ class OrganizationService:
     ) -> None:
         self._session = session
         self._repository = repository or OrganizationRepository(session)
+
+    async def _trace_membership(
+        self,
+        action: TraceAction,
+        member: OrganizationMember,
+        actor_user_id: uuid.UUID,
+        metadata: dict[str, str],
+    ) -> None:
+        """FR-003: record membership changes in internal traceability (no emails stored)."""
+        await InternalTraceService(self._session, member.organization_id).record_event(
+            action=action,
+            outcome=TraceOutcome.SUCCESS,
+            actor_user_id=actor_user_id,
+            target_type="organization_member",
+            target_id=member.id,
+            metadata={"member_user_id": str(member.user_id), **metadata},
+        )
 
     async def create_organization(
         self,
@@ -218,6 +237,10 @@ class OrganizationService:
                 invited_by_user_id=current_user.id,
             )
 
+        await self._trace_membership(
+            TraceAction.ORG_MEMBER_INVITED, member, current_user.id, {"role": member.role}
+        )
+
         return OrganizationMemberResponse(
             id=str(member.id),
             organization_id=str(member.organization_id),
@@ -256,9 +279,17 @@ class OrganizationService:
             if active_owners <= 1:
                 raise ConflictException("Cannot demote the last owner of the organization")
 
+        previous_role = member.role
         member.role = request.role.value
         member.updated_at = datetime.now(timezone.utc)
         await self._session.flush()
+        if previous_role != member.role:
+            await self._trace_membership(
+                TraceAction.ORG_MEMBER_ROLE_CHANGED,
+                member,
+                current_user.id,
+                {"previous_role": previous_role, "role": member.role},
+            )
 
         return OrganizationMemberResponse(
             id=str(member.id),
@@ -295,10 +326,17 @@ class OrganizationService:
                 if active_owners <= 1:
                     raise ConflictException("Cannot revoke the last owner of the organization")
 
+            previous_status = member.status
             member.status = MemberStatus.REVOKED.value
             member.revoked_at = datetime.now(timezone.utc)
             member.updated_at = datetime.now(timezone.utc)
             await self._session.flush()
+            await self._trace_membership(
+                TraceAction.ORG_MEMBER_REVOKED,
+                member,
+                current_user.id,
+                {"role": member.role, "previous_status": previous_status},
+            )
 
         return OrganizationMemberResponse(
             id=str(member.id),
@@ -351,6 +389,9 @@ class OrganizationService:
         member.status = MemberStatus.ACTIVE.value
         member.updated_at = datetime.now(timezone.utc)
         await self._session.flush()
+        await self._trace_membership(
+            TraceAction.ORG_MEMBER_ACCEPTED, member, current_user.id, {"role": member.role}
+        )
 
         return OrganizationMemberResponse(
             id=str(member.id),

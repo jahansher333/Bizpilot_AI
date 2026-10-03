@@ -16,6 +16,7 @@ class TraceAction(str, Enum):
 
     # Organization & Member lifecycle
     ORG_MEMBER_INVITED = "org.member.invited"
+    ORG_MEMBER_ACCEPTED = "org.member.accepted"
     ORG_MEMBER_REVOKED = "org.member.revoked"
     ORG_MEMBER_ROLE_CHANGED = "org.member.role_changed"
     ORG_STATUS_CHANGED = "org.status.changed"

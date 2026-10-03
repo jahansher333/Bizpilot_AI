@@ -457,3 +457,57 @@ async def test_invitations_list_only_callers_own_invitations(
 async def test_invitations_list_requires_authentication(member_client: AsyncClient) -> None:
     resp = await member_client.get("/api/organizations/invitations")
     assert resp.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_membership_changes_are_recorded_in_internal_trace(
+    member_client: AsyncClient,
+    db_session: AsyncSession,
+) -> None:
+    """FR-003: invite, accept, role change and revoke each leave an internal trace event (FIX-009)."""
+    from app.modules.trace.models import InternalTraceEvent
+
+    _, owner_token = await _create_user(member_client, "owner")
+    invitee_email, invitee_token = await _create_user(member_client, "invitee")
+    org_id = await _create_org(member_client, owner_token, "Trace Org")
+    owner_headers = {"Authorization": f"Bearer {owner_token}"}
+
+    invited = await member_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"email": invitee_email, "role": "staff"},
+        headers=owner_headers,
+    )
+    member_id = invited.json()["id"]
+    await member_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    await member_client.patch(
+        f"/api/organizations/{org_id}/members/{member_id}",
+        json={"role": "manager"},
+        headers=owner_headers,
+    )
+    await member_client.delete(f"/api/organizations/{org_id}/members/{member_id}", headers=owner_headers)
+
+    events = (
+        await db_session.execute(
+            select(InternalTraceEvent)
+            .where(
+                InternalTraceEvent.organization_id == uuid.UUID(org_id),
+                InternalTraceEvent.target_id == uuid.UUID(member_id),
+            )
+            .order_by(InternalTraceEvent.created_at.asc())
+        )
+    ).scalars().all()
+
+    assert [e.action for e in events] == [
+        "org.member.invited",
+        "org.member.accepted",
+        "org.member.role_changed",
+        "org.member.revoked",
+    ]
+    role_change = events[2]
+    assert role_change.event_metadata["previous_role"] == "staff"
+    assert role_change.event_metadata["role"] == "manager"
+    for event in events:
+        assert invitee_email not in str(event.event_metadata)
