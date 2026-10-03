@@ -1,131 +1,92 @@
 "use client";
 
-import React from "react";
+import React, { useCallback, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { useOrgRole } from "@/hooks/use-org-role";
+import { useDismiss } from "@/hooks/use-dismiss";
+import { Icon } from "@/components/ui/icon";
+import { initials } from "@/components/ui/logo";
+import { routeInfo } from "@/components/shell/nav-config";
 
 interface WorkspaceHeaderProps {
   orgId: string;
   onOpenMobileMenu: () => void;
 }
 
+/** Design canvas "07 · Top header": breadcrumb, quick-create menu and account avatar. */
 export function WorkspaceHeader({ orgId, onOpenMobileMenu }: WorkspaceHeaderProps) {
   const pathname = usePathname();
-  const { activeOrg, activeRole, logout } = useAuth();
+  const { user, organizations } = useAuth();
+  const role = useOrgRole(orgId);
+  const org = organizations.find((o) => o.id === orgId);
+  const { section, page } = routeInfo(pathname, orgId);
+  const ownerOrManager = role === "owner" || role === "manager";
+  const base = `/workspace/${orgId}`;
 
-  // Generate breadcrumb info from current pathname
-  const breadcrumbs = React.useMemo(() => {
-    const defaultCrumb = { section: "Overview", page: "Dashboard" };
-    if (!pathname) return defaultCrumb;
+  const [createOpen, setCreateOpen] = useState(false);
+  const createRef = useRef<HTMLDivElement>(null);
+  const createButtonRef = useRef<HTMLButtonElement>(null);
+  const closeCreate = useCallback(() => setCreateOpen(false), []);
+  useDismiss(createOpen, createRef, closeCreate, createButtonRef);
 
-    if (pathname.includes("/orders")) {
-      return { section: "Operations", page: "Orders" };
-    }
-    if (pathname.includes("/catalog")) {
-      return { section: "Operations", page: "Products & Categories" };
-    }
-    if (pathname.includes("/inventory")) {
-      return { section: "Operations", page: "Inventory" };
-    }
-    if (pathname.includes("/customers")) {
-      return { section: "Operations", page: "Customers" };
-    }
-    if (pathname.includes("/payments")) {
-      return { section: "Finance", page: "Payments" };
-    }
-    if (pathname.includes("/expenses")) {
-      return { section: "Finance", page: "Expenses" };
-    }
-    if (pathname.includes("/assistant")) {
-      return { section: "AI", page: "BizPilot Assistant" };
-    }
-    return defaultCrumb;
-  }, [pathname]);
+  const quickCreate = [
+    { label: "New order", href: `${base}/orders`, icon: "orders" as const, show: true },
+    { label: "Add product", href: `${base}/catalog`, icon: "products" as const, show: ownerOrManager },
+    { label: "Add customer", href: `${base}/customers`, icon: "userPlus" as const, show: true },
+    { label: "Record payment", href: `${base}/payments`, icon: "payments" as const, show: true },
+    { label: "Record expense", href: `${base}/expenses`, icon: "expenses" as const, show: ownerOrManager },
+  ].filter((item) => item.show);
 
   return (
-    <header className="sticky top-0 z-10 flex h-16 items-center justify-between border-b border-slate-200 bg-white/95 px-4 backdrop-blur-xs sm:px-6">
-      <div className="flex items-center gap-3">
-        {/* Mobile Hamburger Toggle */}
-        <button
-          type="button"
-          onClick={onOpenMobileMenu}
-          className="rounded-lg p-2 text-slate-600 hover:bg-slate-100 hover:text-slate-900 md:hidden"
-          aria-label="Open navigation menu"
-        >
-          <svg className="h-5 w-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-        </button>
+    <header className="tb">
+      <button type="button" className="btn btn-ghost icon-btn tb-menu" aria-label="Open navigation menu" onClick={onOpenMobileMenu}>
+        <Icon name="menu" size="lg" />
+      </button>
 
-        {/* Semantic Breadcrumbs */}
-        <nav aria-label="Breadcrumb" className="flex items-center text-sm">
-          <ol className="flex items-center space-x-2">
-            <li>
-              <Link
-                href={`/workspace/${orgId}`}
-                className="text-slate-500 hover:text-slate-800 font-medium"
-              >
-                {activeOrg?.display_name || "Workspace"}
-              </Link>
-            </li>
-            <li className="text-slate-400" aria-hidden="true">
-              /
-            </li>
-            <li>
-              <span className="text-slate-500">{breadcrumbs.section}</span>
-            </li>
-            <li className="text-slate-400" aria-hidden="true">
-              /
-            </li>
-            <li>
-              <span className="font-semibold text-slate-900" aria-current="page">
-                {breadcrumbs.page}
-              </span>
-            </li>
-          </ol>
-        </nav>
-      </div>
-
-      {/* Right Header Actions */}
-      <div className="flex items-center gap-3">
-        {/* Role Pill */}
-        <span className="hidden sm:inline-flex items-center rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-medium text-emerald-800 capitalize border border-emerald-200">
-          Role: {activeRole || "owner"}
-        </span>
-
-        {/* Switch Organization Link */}
-        <Link
-          href="/onboarding"
-          className="rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-700 shadow-xs hover:bg-slate-50"
-          title="Switch workspace"
-        >
-          Switch Org
+      <nav className="crumb" aria-label="Breadcrumb" style={{ flex: 1 }}>
+        <Link href={base} className="hide-sm">
+          {org?.display_name ?? "Workspace"}
         </Link>
+        <Icon name="chevronRight" size="sm" className="hide-sm" />
+        <span className="hide-sm">{section}</span>
+        <Icon name="chevronRight" size="sm" className="hide-sm" />
+        <span className="here" aria-current="page">
+          {page}
+        </span>
+      </nav>
 
-        {/* Sign Out */}
+      <div ref={createRef} style={{ position: "relative" }}>
         <button
+          ref={createButtonRef}
           type="button"
-          onClick={() => logout()}
-          className="rounded-lg p-1.5 text-xs font-medium text-slate-500 hover:text-rose-600 sm:px-2.5 sm:py-1 sm:hover:bg-rose-50"
+          className="btn btn-primary btn-sm"
+          aria-haspopup="menu"
+          aria-expanded={createOpen}
+          onClick={() => setCreateOpen((v) => !v)}
         >
-          <span className="hidden sm:inline">Sign out</span>
-          <svg
-            className="h-4 w-4 sm:hidden"
-            fill="none"
-            viewBox="0 0 24 24"
-            stroke="currentColor"
-            strokeWidth={2}
-            aria-hidden="true"
-          >
-            <path
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"
-            />
-          </svg>
+          <Icon name="plus" />
+          <span className="hide-sm">Create</span>
+          <Icon name="chevronDown" size="sm" className="hide-sm" style={{ opacity: 0.8 }} />
+          <span className="sr-only">Quick create menu</span>
         </button>
+        {createOpen && (
+          <div className="menu" role="menu" aria-label="Quick create" style={{ position: "absolute", right: 0, top: "calc(100% + 8px)", zIndex: 30 }}>
+            <div className="menu-label">Quick create</div>
+            {quickCreate.map((item) => (
+              <Link key={item.label} className="menu-item" role="menuitem" href={item.href} onClick={closeCreate}>
+                <Icon name={item.icon} />
+                {item.label}
+              </Link>
+            ))}
+          </div>
+        )}
       </div>
+
+      <span className="av" title={user?.display_name ?? undefined} aria-hidden="true">
+        {initials(user?.display_name || user?.email)}
+      </span>
     </header>
   );
 }

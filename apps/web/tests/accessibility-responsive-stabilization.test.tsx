@@ -10,6 +10,11 @@ import * as authHook from "@/hooks/use-auth";
 import * as catalogApi from "@/lib/api/catalog";
 import * as customersApi from "@/lib/api/customers";
 
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/workspace/org-1",
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+}));
+
 vi.mock("@/lib/api/catalog", () => ({
   listProducts: vi.fn(),
 }));

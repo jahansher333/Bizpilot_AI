@@ -1,5 +1,5 @@
 import React from "react";
-import { describe, expect, it, vi, beforeEach } from "vitest";
+import { describe, expect, it, vi, beforeEach, afterEach } from "vitest";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthProvider, useAuth } from "@/components/providers/auth-provider";
@@ -28,60 +28,16 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
   });
 
   describe("WorkspaceSidebar", () => {
-    it("renders all navigation groups and links for Owner", () => {
-      render(
-        <QueryProvider>
-          <AuthProvider>
-            <WorkspaceSidebar orgId="org-123" />
-          </AuthProvider>
-        </QueryProvider>
-      );
-
-      // Groups
-      expect(screen.getByText("Overview")).toBeInTheDocument();
-      expect(screen.getByText("Operations")).toBeInTheDocument();
-      expect(screen.getByText("Finance")).toBeInTheDocument();
-      expect(screen.getByText("AI Copilot")).toBeInTheDocument();
-      expect(screen.getByText("Management")).toBeInTheDocument();
-
-      // Navigation Items
-      expect(screen.getByRole("link", { name: /dashboard/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /^orders/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /products/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /inventory/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /customers/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /payments/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /expenses/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /bizpilot ai/i })).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /workspaces/i })).toBeInTheDocument();
-    });
-
-    it("marks the active route with aria-current='page'", () => {
-      currentPathname = "/workspace/org-123/orders";
-
-      render(
-        <QueryProvider>
-          <AuthProvider>
-            <WorkspaceSidebar orgId="org-123" />
-          </AuthProvider>
-        </QueryProvider>
-      );
-
-      const ordersLink = screen.getByRole("link", { name: /^orders/i });
-      expect(ordersLink).toHaveAttribute("aria-current", "page");
-
-      const productsLink = screen.getByRole("link", { name: /products/i });
-      expect(productsLink).not.toHaveAttribute("aria-current");
-    });
-
-    it("omits Expenses link when active user role is Staff", () => {
+    function mockAuth(role: "owner" | "manager" | "staff") {
       vi.spyOn(authHooks, "useAuth").mockReturnValue({
-        user: { id: "u-staff", email: "staff@example.com", display_name: "Staff Member", status: "active" },
-        activeOrg: { id: "org-123", display_name: "Test Org", currency_code: "PKR", timezone: "Asia/Karachi", status: "active", created_at: "", role: "staff" },
+        user: { id: "u-1", email: "asad@khantraders.pk", display_name: "Asad Khan", status: "active" },
+        organizations: [
+          { id: "org-123", display_name: "Khan Traders", currency_code: "PKR", timezone: "Asia/Karachi", status: "active", created_at: "", role },
+        ],
+        activeOrg: null,
         activeOrgId: "org-123",
-        activeRole: "staff",
-        token: "staff-token",
-        organizations: [],
+        activeRole: role,
+        token: "t",
         isLoading: false,
         isAuthenticated: true,
         login: vi.fn(),
@@ -91,15 +47,75 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
         selectOrg: vi.fn(),
         refetchOrganizations: vi.fn(),
       });
+    }
 
+    afterEach(() => {
+      vi.restoreAllMocks();
+    });
+
+    it("renders the design navigation groups and links for an Owner (R1)", () => {
+      mockAuth("owner");
       render(<WorkspaceSidebar orgId="org-123" />);
 
-      // Payments is visible for staff
-      expect(screen.getByRole("link", { name: /payments/i })).toBeInTheDocument();
-      // Expenses must NOT be visible for staff
-      expect(screen.queryByRole("link", { name: /expenses/i })).not.toBeInTheDocument();
+      for (const group of ["Overview", "Operations", "Finance", "Intelligence", "Management"]) {
+        expect(screen.getByText(group)).toBeInTheDocument();
+      }
+      for (const name of [/dashboard/i, /^orders/i, /^products/i, /^inventory/i, /^customers/i, /^payments/i, /^expenses/i, /^bizpilot ai\s*read-only/i, /^team/i]) {
+        expect(screen.getByRole("link", { name })).toBeInTheDocument();
+      }
+      expect(screen.getByRole("link", { name: /switch workspace: khan traders, owner/i })).toHaveAttribute("href", "/onboarding");
+      expect(screen.getByText("Read-only")).toBeInTheDocument();
+    });
+
+    it("marks the active route with aria-current='page'", () => {
+      mockAuth("owner");
+      currentPathname = "/workspace/org-123/orders";
+      render(<WorkspaceSidebar orgId="org-123" />);
+
+      expect(screen.getByRole("link", { name: /^orders/i })).toHaveAttribute("aria-current", "page");
+      expect(screen.getByRole("link", { name: /^products/i })).not.toHaveAttribute("aria-current");
+    });
+
+    it("hides Expenses and Team for Staff, and Team for Managers", () => {
+      mockAuth("staff");
+      const { unmount } = render(<WorkspaceSidebar orgId="org-123" />);
+      expect(screen.getByRole("link", { name: /^payments/i })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^expenses/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^team/i })).not.toBeInTheDocument();
+      expect(screen.queryByText("Management")).not.toBeInTheDocument();
+      unmount();
 
       vi.restoreAllMocks();
+      mockAuth("manager");
+      render(<WorkspaceSidebar orgId="org-123" />);
+      expect(screen.getByRole("link", { name: /^expenses/i })).toBeInTheDocument();
+      expect(screen.queryByRole("link", { name: /^team/i })).not.toBeInTheDocument();
+    });
+
+    it("opens the account menu, closes it on Escape, and signs out", () => {
+      mockAuth("owner");
+      const logout = vi.fn().mockResolvedValue(undefined);
+      vi.mocked(authHooks.useAuth).mockReturnValue({ ...authHooks.useAuth(), logout });
+      render(<WorkspaceSidebar orgId="org-123" />);
+
+      const trigger = screen.getByRole("button", { name: /account menu for asad khan/i });
+      fireEvent.click(trigger);
+      expect(screen.getByRole("menu", { name: "Account" })).toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu", { name: "Account" })).not.toBeInTheDocument();
+
+      fireEvent.click(trigger);
+      fireEvent.click(screen.getByRole("menuitem", { name: /sign out/i }));
+      expect(logout).toHaveBeenCalledTimes(1);
+    });
+
+    it("collapses via the toggle button", () => {
+      mockAuth("owner");
+      const onToggle = vi.fn();
+      render(<WorkspaceSidebar orgId="org-123" collapsed onToggleCollapse={onToggle} />);
+      fireEvent.click(screen.getByRole("button", { name: /expand sidebar/i }));
+      expect(onToggle).toHaveBeenCalledTimes(1);
+      expect(screen.getByRole("navigation", { name: "Primary" })).toHaveClass("collapsed");
     });
   });
 
@@ -136,6 +152,24 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
       fireEvent.click(hamburgerBtn);
 
       expect(mockToggle).toHaveBeenCalledTimes(1);
+    });
+
+    it("offers role-appropriate quick-create actions", () => {
+      render(
+        <QueryProvider>
+          <AuthProvider>
+            <WorkspaceHeader orgId="org-123" onOpenMobileMenu={vi.fn()} />
+          </AuthProvider>
+        </QueryProvider>
+      );
+      fireEvent.click(screen.getByRole("button", { name: /quick create menu/i }));
+      const menu = screen.getByRole("menu", { name: "Quick create" });
+      expect(menu).toBeInTheDocument();
+      // No session in this render: least-privileged (staff) actions only.
+      expect(screen.getByRole("menuitem", { name: /new order/i })).toHaveAttribute("href", "/workspace/org-123/orders");
+      expect(screen.queryByRole("menuitem", { name: /record expense/i })).not.toBeInTheDocument();
+      fireEvent.keyDown(document, { key: "Escape" });
+      expect(screen.queryByRole("menu", { name: "Quick create" })).not.toBeInTheDocument();
     });
   });
 

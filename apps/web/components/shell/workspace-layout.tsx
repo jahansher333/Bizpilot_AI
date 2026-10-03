@@ -1,20 +1,27 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
-import { useRouter } from "next/navigation";
+import React, { useState, useEffect, useRef } from "react";
+import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
 import { WorkspaceHeader } from "@/components/shell/workspace-header";
+import { Icon } from "@/components/ui/icon";
 
 interface WorkspaceLayoutProps {
   orgId: string;
   children: React.ReactNode;
 }
 
+const COLLAPSE_KEY = "bizpilot_sidebar_collapsed";
+
+/** Design canvas app shell: sticky sidebar (248 / 68 collapsed), top header, drawer under 760px. */
 export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const router = useRouter();
+  const pathname = usePathname();
   const { isLoading, user, organizations } = useAuth();
+  const drawerCloseRef = useRef<HTMLButtonElement>(null);
 
   // Route guard: signed-out users go to login; workspaces without an active membership
   // go to onboarding. The backend still rejects every unauthorized request.
@@ -27,71 +34,78 @@ export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
     }
   }, [isLoading, user, organizations, orgId, router]);
 
-  // Close mobile menu on Escape key
   useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape" && isMobileMenuOpen) {
-        setIsMobileMenuOpen(false);
+    try {
+      setCollapsed(localStorage.getItem(COLLAPSE_KEY) === "1");
+    } catch {
+      // Storage unavailable: keep the expanded default.
+    }
+  }, []);
+
+  function toggleCollapse() {
+    setCollapsed((current) => {
+      const next = !current;
+      try {
+        localStorage.setItem(COLLAPSE_KEY, next ? "1" : "0");
+      } catch {
+        // Preference is a convenience only.
       }
+      return next;
+    });
+  }
+
+  // Close the drawer on navigation.
+  useEffect(() => {
+    setIsMobileMenuOpen(false);
+  }, [pathname]);
+
+  // Close mobile drawer on Escape and move focus into it when it opens.
+  useEffect(() => {
+    if (!isMobileMenuOpen) return;
+    drawerCloseRef.current?.focus();
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") setIsMobileMenuOpen(false);
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
   }, [isMobileMenuOpen]);
 
   return (
-    <div className="flex min-h-screen bg-surface font-body-md text-on-surface antialiased">
-      {/* Desktop Sidebar */}
-      <WorkspaceSidebar
-        orgId={orgId}
-        className="hidden md:flex md:w-64 md:flex-col md:fixed md:inset-y-0 z-20"
-      />
+    <div className="shell">
+      <a className="skip-link" href="#main-content">
+        Skip to content
+      </a>
 
-      {/* Mobile Drawer Overlay */}
+      <WorkspaceSidebar orgId={orgId} collapsed={collapsed} onToggleCollapse={toggleCollapse} className="sb-sticky" />
+
       {isMobileMenuOpen && (
         <div
-          className="fixed inset-0 z-50 flex md:hidden"
+          className="drawer-wrap"
           role="dialog"
           aria-modal="true"
           aria-label="Navigation drawer"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setIsMobileMenuOpen(false);
+          }}
         >
-          {/* Backdrop */}
-          <div
-            className="fixed inset-0 bg-black/40 backdrop-blur-xs transition-opacity"
-            onClick={() => setIsMobileMenuOpen(false)}
-            aria-hidden="true"
-          />
-
-          {/* Drawer Content */}
-          <div className="relative flex w-full max-w-xs flex-1 flex-col bg-surface-container-low shadow-xl">
-            <div className="absolute right-0 top-0 -mr-12 pt-4">
-              <button
-                type="button"
-                className="ml-1 flex h-10 w-10 items-center justify-center rounded-full text-white hover:bg-white/20 focus:outline-none focus:ring-2 focus:ring-white"
-                onClick={() => setIsMobileMenuOpen(false)}
-                aria-label="Close navigation menu"
-              >
-                <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-
-            <WorkspaceSidebar
-              orgId={orgId}
-              onNavigate={() => setIsMobileMenuOpen(false)}
-              className="h-full border-r-0"
-            />
+          <WorkspaceSidebar orgId={orgId} onNavigate={() => setIsMobileMenuOpen(false)} />
+          <div style={{ padding: 12 }}>
+            <button
+              ref={drawerCloseRef}
+              type="button"
+              className="btn btn-secondary icon-btn"
+              onClick={() => setIsMobileMenuOpen(false)}
+              aria-label="Close navigation menu"
+            >
+              <Icon name="close" />
+            </button>
           </div>
         </div>
       )}
 
-      {/* Main Workspace Column */}
-      <div className="flex flex-1 flex-col md:pl-64">
-        <WorkspaceHeader
-          orgId={orgId}
-          onOpenMobileMenu={() => setIsMobileMenuOpen(true)}
-        />
-        <main className="flex-1 overflow-y-auto">
+      <div className="shell-main">
+        <WorkspaceHeader orgId={orgId} onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
+        <main id="main-content" tabIndex={-1} style={{ flex: 1, minWidth: 0, outline: "none" }}>
           {children}
         </main>
       </div>
