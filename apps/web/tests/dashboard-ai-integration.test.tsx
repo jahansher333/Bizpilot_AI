@@ -12,6 +12,10 @@ vi.mock("@/lib/api/dashboard", () => ({
   getDashboard: vi.fn(),
 }));
 
+vi.mock("@/lib/api/inventory", () => ({
+  fetchBalances: vi.fn().mockResolvedValue({ total: 5, items: [], limit: 1, offset: 0 }),
+}));
+
 vi.mock("@/lib/api/assistant", () => ({
   sendAssistantQuery: vi.fn(),
 }));
@@ -79,49 +83,23 @@ describe("UX-006: Dashboard & AI Workspace Integration", () => {
     vi.mocked(dashboardApi.getDashboard).mockResolvedValue(mockDashboardData);
   });
 
-  it("renders AI Copilot spotlight, quick question chips, and provenance badges on Dashboard", async () => {
-    renderWithQueryClient(
-      <DashboardView orgId="org-1" userRole="owner" />
-    );
+  it("renders the AI spotlight with suggested questions linking to the assistant (R3)", async () => {
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
 
-    await waitFor(() => {
-      expect(screen.getByText("Operational Business Copilot")).toBeInTheDocument();
-      expect(
-        screen.getByText(/ask about sales, low stock, customer balances/i)
-      ).toBeInTheDocument();
-    });
-
-    // Check Consult AI Copilot action
-    const consultLink = screen.getByRole("link", { name: /consult ai copilot/i });
-    expect(consultLink).toHaveAttribute("href", "/workspace/org-1/assistant");
-
-    // Check quick prompt chips
-    const salesPrompt = screen.getByRole("link", { name: /how are sales doing today\?/i });
-    expect(salesPrompt).toHaveAttribute(
+    expect(await screen.findByRole("heading", { name: /ask bizpilot about your business/i })).toBeInTheDocument();
+    expect(screen.getByText(/read-only · answers from your own records/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open bizpilot ai/i })).toHaveAttribute("href", "/workspace/org-1/assistant");
+    expect(screen.getByRole("link", { name: /how are sales doing today\?/i })).toHaveAttribute(
       "href",
       "/workspace/org-1/assistant?prompt=How%20are%20sales%20doing%20today%3F"
     );
-
-    const expensePrompt = screen.getByRole("link", { name: /summarize operational expenses/i });
-    expect(expensePrompt).toBeInTheDocument();
-
-    // Check deterministic PostgreSQL provenance tags
-    await waitFor(() => {
-      const pgBadges = screen.getAllByText("PostgreSQL");
-      expect(pgBadges.length).toBeGreaterThanOrEqual(3);
-    });
+    expect(screen.getByRole("link", { name: /what are my expenses this month\?/i })).toBeInTheDocument();
   });
 
-  it("omits expense question chip on Dashboard when userRole is staff", async () => {
-    renderWithQueryClient(
-      <DashboardView orgId="org-1" userRole="staff" />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Operational Business Copilot")).toBeInTheDocument();
-    });
-
-    expect(screen.queryByRole("link", { name: /summarize operational expenses/i })).not.toBeInTheDocument();
+  it("omits the expense question for Staff", async () => {
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="staff" />);
+    expect(await screen.findByRole("heading", { name: /ask bizpilot about your business/i })).toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: /what are my expenses this month\?/i })).not.toBeInTheDocument();
     expect(screen.getByRole("link", { name: /how are sales doing today\?/i })).toBeInTheDocument();
   });
 

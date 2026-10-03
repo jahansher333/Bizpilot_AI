@@ -15,6 +15,10 @@ vi.mock("@/lib/api/dashboard", () => ({
   getDashboard: vi.fn(),
 }));
 
+vi.mock("@/lib/api/inventory", () => ({
+  fetchBalances: vi.fn().mockResolvedValue({ total: 20, items: [], limit: 1, offset: 0 }),
+}));
+
 function createTestQueryClient() {
   return new QueryClient({
     defaultOptions: {
@@ -142,122 +146,102 @@ const mockStaffDashboardData: DashboardSummary = {
   freshness: mockOwnerDashboardData.freshness,
 };
 
-describe("Dashboard UI & Schemas (DASH-003)", () => {
+describe("Dashboard UI & Schemas (DASH-003, R3 design)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
   it("validates dashboardSummarySchema correctly", () => {
-    const parseResult = dashboardSummarySchema.safeParse(mockOwnerDashboardData);
-    expect(parseResult.success).toBe(true);
-
-    const staffParseResult = dashboardSummarySchema.safeParse(mockStaffDashboardData);
-    expect(staffParseResult.success).toBe(true);
+    expect(dashboardSummarySchema.safeParse(mockOwnerDashboardData).success).toBe(true);
   });
 
   it("formats PKR currency properly using formatMoney", () => {
-    expect(formatMoney(125000)).toBe("Rs. 1250.00");
-    expect(formatMoney(95000)).toBe("Rs. 950.00");
-    expect(formatMoney(0)).toBe("Rs. 0.00");
-    expect(formatMoney(-5000)).toBe("Rs. -50.00");
+    expect(formatMoney(125000, "PKR")).toBe("Rs. 1250.00");
   });
 
-  it("renders full dashboard metrics for Owner role", async () => {
+  it("renders the four key figures, inventory health and activity for an Owner", async () => {
     vi.mocked(dashboardApi.getDashboard).mockResolvedValue(mockOwnerDashboardData);
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
 
-    renderWithQueryClient(
-      <DashboardView
-        orgId="00000000-0000-0000-0000-000000000000"
-        userRole="owner"
-      />
-    );
+    const figures = await screen.findByRole("region", { name: "Key figures" });
+    expect(figures).toHaveTextContent("Sales");
+    expect(figures).toHaveTextContent("1,250");
+    expect(figures).toHaveTextContent("5 completed orders · voided excluded");
+    expect(figures).toHaveTextContent("950");
+    expect(figures).toHaveTextContent("4 payments recorded");
+    expect(figures).toHaveTextContent("300");
+    expect(figures).toHaveTextContent("2 expenses recorded");
+    expect(figures).toHaveTextContent("650");
+    expect(figures).toHaveTextContent("Calculated · not a profit figure");
 
-    // Sales and Collections (wait for query data to render)
-    expect(await screen.findByText("Rs. 1250.00")).toBeInTheDocument();
-    expect(screen.getByText("Rs. 950.00")).toBeInTheDocument();
-    expect(screen.getByText("5 active order(s)")).toBeInTheDocument();
-    expect(screen.getByText("4 receipt(s)")).toBeInTheDocument();
-
-    // Expenses and Net Cash Flow (Visible for Owner)
-    expect(screen.getByText("Rs. 300.00")).toBeInTheDocument();
-    expect(screen.getByText("Rs. 650.00")).toBeInTheDocument();
-    expect(screen.getByText("2 expense record(s)")).toBeInTheDocument();
-
-    // Low stock alerts
-    expect(screen.getByText("Stock Alerts (2)")).toBeInTheDocument();
+    // 20 tracked balances, 2 needing attention: 18 healthy, 1 low, 1 out
+    expect(await screen.findByRole("img", { name: /20 tracked products: 18 healthy, 1 low stock, 1 out of stock/i })).toBeInTheDocument();
     expect(screen.getByText("Sugar 1kg")).toBeInTheDocument();
     expect(screen.getByText("Tea 500g")).toBeInTheDocument();
-    expect(screen.getByText("Out of Stock")).toBeInTheDocument();
-    expect(screen.getByText("Low Stock")).toBeInTheDocument();
+    expect(screen.getAllByText("Adjust stock").length).toBe(2);
 
-    // Recent activity (includes order, payment, and expense)
-    expect(screen.getByText("ORD-1001")).toBeInTheDocument();
-    expect(screen.getByText("PAY-1001")).toBeInTheDocument();
-    expect(screen.getByText("LESCO Electric")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "ORD-1001" })).toHaveAttribute("href", "/workspace/org-1/orders");
+    expect(screen.getByRole("link", { name: "PAY-1001" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "LESCO Electric" })).toBeInTheDocument();
   });
 
-  it("renders limited view for Staff role with expenses and net cash restricted", async () => {
+  it("shows a restricted card instead of expenses and net cash for Staff", async () => {
     vi.mocked(dashboardApi.getDashboard).mockResolvedValue(mockStaffDashboardData);
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="staff" />);
 
-    renderWithQueryClient(
-      <DashboardView
-        orgId="00000000-0000-0000-0000-000000000000"
-        userRole="staff"
-      />
-    );
-
-    // Sales and Collections remain visible (wait for query data to render)
-    expect(await screen.findByText("Rs. 1250.00")).toBeInTheDocument();
-    expect(screen.getByText("Rs. 950.00")).toBeInTheDocument();
-
-    // Expenses & Net Cash are explicitly marked restricted/unavailable
-    expect(screen.getByText("Restricted")).toBeInTheDocument();
-    expect(screen.getByText("Unavailable")).toBeInTheDocument();
-    expect(
-      screen.getByText(/Staff role is not authorized to view operating expenses/i)
-    ).toBeInTheDocument();
-
-    // Recent activity does NOT contain expenses
-    expect(screen.getByText("ORD-1001")).toBeInTheDocument();
-    expect(screen.getByText("PAY-1001")).toBeInTheDocument();
-    expect(screen.queryByText("LESCO Electric")).not.toBeInTheDocument();
+    const figures = await screen.findByRole("region", { name: "Key figures" });
+    expect(figures).toHaveTextContent("Visible to Owners and Managers.");
+    expect(figures).not.toHaveTextContent("Net cash flow");
+    expect(screen.queryByText("Adjust stock")).not.toBeInTheDocument();
+    expect(screen.queryByRole("link", { name: "LESCO Electric" })).not.toBeInTheDocument();
   });
 
-  it("triggers query with selected period when period button is clicked", async () => {
+  it("shows Unavailable rather than zero when an owner figure is missing (FR-011)", async () => {
+    vi.mocked(dashboardApi.getDashboard).mockResolvedValue({ ...mockOwnerDashboardData, net_cash: null });
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
+    expect(await screen.findByText("Unavailable")).toBeInTheDocument();
+  });
+
+  it("queries the selected period", async () => {
     vi.mocked(dashboardApi.getDashboard).mockResolvedValue(mockOwnerDashboardData);
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
+    await screen.findByRole("region", { name: "Key figures" });
 
-    renderWithQueryClient(
-      <DashboardView
-        orgId="00000000-0000-0000-0000-000000000000"
-        userRole="owner"
-      />
+    const yesterday = screen.getByRole("button", { name: "Yesterday" });
+    fireEvent.click(yesterday);
+    expect(yesterday).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() =>
+      expect(dashboardApi.getDashboard).toHaveBeenCalledWith("org-1", expect.objectContaining({ period: "yesterday" }), undefined)
     );
-
-    expect(await screen.findByText("Operational Dashboard")).toBeInTheDocument();
-
-    const yesterdayBtn = screen.getByRole("button", { name: "yesterday" });
-    fireEvent.click(yesterdayBtn);
-
-    await waitFor(() => {
-      expect(dashboardApi.getDashboard).toHaveBeenCalledWith(
-        "00000000-0000-0000-0000-000000000000",
-        expect.objectContaining({ period: "yesterday" }),
-        undefined
-      );
-    });
   });
 
-  it("renders error state with retry button when query fails", async () => {
-    vi.mocked(dashboardApi.getDashboard).mockRejectedValue(new Error("Network failure"));
+  it("waits for both dates before querying a custom range", async () => {
+    vi.mocked(dashboardApi.getDashboard).mockResolvedValue(mockOwnerDashboardData);
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
+    await screen.findByRole("region", { name: "Key figures" });
+    vi.mocked(dashboardApi.getDashboard).mockClear();
 
-    renderWithQueryClient(
-      <DashboardView
-        orgId="00000000-0000-0000-0000-000000000000"
-        userRole="owner"
-      />
+    fireEvent.click(screen.getByRole("button", { name: "Custom" }));
+    expect(screen.getByRole("button", { name: /apply dates/i })).toBeDisabled();
+    expect(dashboardApi.getDashboard).not.toHaveBeenCalled();
+
+    fireEvent.change(screen.getByLabelText("From"), { target: { value: "2026-09-01" } });
+    fireEvent.change(screen.getByLabelText("To"), { target: { value: "2026-09-30" } });
+    fireEvent.click(screen.getByRole("button", { name: /apply dates/i }));
+    await waitFor(() =>
+      expect(dashboardApi.getDashboard).toHaveBeenCalledWith(
+        "org-1",
+        expect.objectContaining({ period: "custom", startDate: "2026-09-01", endDate: "2026-09-30" }),
+        undefined
+      )
     );
+  });
 
-    expect(await screen.findByText("Failed to load dashboard metrics.")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+  it("shows an error with retry when the dashboard fails to load", async () => {
+    vi.mocked(dashboardApi.getDashboard).mockRejectedValue(new Error("Network failure"));
+    renderWithQueryClient(<DashboardView orgId="org-1" userRole="owner" />);
+    expect(await screen.findByText("Couldn’t load the dashboard")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /try again/i }));
+    await waitFor(() => expect(vi.mocked(dashboardApi.getDashboard).mock.calls.length).toBeGreaterThan(1));
   });
 });

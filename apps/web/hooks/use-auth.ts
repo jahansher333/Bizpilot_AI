@@ -11,4 +11,9 @@ export function useAuth(): AuthContextType {
   return context;
 }
 
+/** For presentational details (e.g. a greeting) that must not fail outside an AuthProvider. */
+export function useOptionalAuth(): AuthContextType | null {
+  return useContext(AuthContext) ?? null;
+}
+
 export type { AuthContextType };
