@@ -9,13 +9,7 @@ import {
   VoidReversalInput,
 } from "@/lib/schemas/inventory";
 import { ApiError } from "@/lib/api/catalog";
-
-const getApiBaseUrl = (): string => {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "";
-  }
-  return process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-};
+import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -39,13 +33,10 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-function getHeaders(token?: string, idempotencyKey?: string): HeadersInit {
+function getHeaders(idempotencyKey?: string): HeadersInit {
   const headers: Record<string, string> = {
     "Content-Type": "application/json",
   };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
   if (idempotencyKey) {
     headers["Idempotency-Key"] = idempotencyKey;
   }
@@ -60,10 +51,14 @@ export async function fetchBalances(
 ): Promise<InventoryBalanceListResponse> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/balances?limit=${limit}&offset=${offset}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<InventoryBalanceListResponse>(res);
 }
 
@@ -74,10 +69,14 @@ export async function fetchBalance(
 ): Promise<InventoryBalance> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/balances/${productId}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<InventoryBalance>(res);
 }
 
@@ -94,10 +93,14 @@ export async function fetchMovements(
   if (params?.offset) query.append("offset", params.offset.toString());
 
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/movements?${query.toString()}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<InventoryMovementListResponse>(res);
 }
 
@@ -108,11 +111,15 @@ export async function recordOpeningStock(
 ): Promise<InventoryMutationResponse> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/opening-stock`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token),
-    body: JSON.stringify(input),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(input),
+    },
+    token
+  );
   return handleResponse<InventoryMutationResponse>(res);
 }
 
@@ -124,11 +131,15 @@ export async function recordAdjustment(
 ): Promise<InventoryMutationResponse> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/adjustments`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token, idempotencyKey),
-    body: JSON.stringify(input),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(idempotencyKey),
+      body: JSON.stringify(input),
+    },
+    token
+  );
   return handleResponse<InventoryMutationResponse>(res);
 }
 
@@ -140,11 +151,15 @@ export async function recordCorrection(
 ): Promise<InventoryMutationResponse> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/corrections`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token, idempotencyKey),
-    body: JSON.stringify(input),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(idempotencyKey),
+      body: JSON.stringify(input),
+    },
+    token
+  );
   return handleResponse<InventoryMutationResponse>(res);
 }
 
@@ -156,10 +171,14 @@ export async function recordVoidReversal(
 ): Promise<InventoryMutationResponse> {
   const baseUrl = getApiBaseUrl();
   const url = `${baseUrl}/api/organizations/${orgId}/inventory/void-reversals`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token, idempotencyKey),
-    body: JSON.stringify(input),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(idempotencyKey),
+      body: JSON.stringify(input),
+    },
+    token
+  );
   return handleResponse<InventoryMutationResponse>(res);
 }

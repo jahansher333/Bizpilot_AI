@@ -6,8 +6,7 @@ import {
   PaymentListResponse,
   PaymentVoidInput,
 } from "@/lib/schemas/payments";
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -27,18 +26,15 @@ async function request<T>(
     ...(options.headers as Record<string, string>),
   };
 
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-
   if (idempotencyKey) {
     headers["Idempotency-Key"] = idempotencyKey;
   }
 
-  const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-    ...options,
-    headers,
-  });
+  const response = await authorizedFetch(
+    `${getApiBaseUrl()}${endpoint}`,
+    { ...options, headers },
+    token
+  );
 
   if (!response.ok) {
     let errorMessage = "An error occurred";

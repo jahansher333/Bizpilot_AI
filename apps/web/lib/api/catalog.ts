@@ -6,6 +6,7 @@ import {
   Product,
   ProductListResponse,
 } from "@/lib/schemas/catalog";
+import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
 export class ApiError extends Error {
   status: number;
@@ -18,13 +19,6 @@ export class ApiError extends Error {
     this.code = code;
   }
 }
-
-const getApiBaseUrl = (): string => {
-  if (typeof window !== "undefined") {
-    return process.env.NEXT_PUBLIC_API_URL || "";
-  }
-  return process.env.NEXT_PUBLIC_API_URL || "http://127.0.0.1:8000";
-};
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -49,14 +43,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return (await res.json()) as T;
 }
 
-function getHeaders(token?: string): HeadersInit {
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (token) {
-    headers["Authorization"] = `Bearer ${token}`;
-  }
-  return headers;
+function getHeaders(): HeadersInit {
+  return { "Content-Type": "application/json" };
 }
 
 // ==============================================================================
@@ -82,10 +70,14 @@ export async function listCategories(
   const qs = query.toString() ? `?${query.toString()}` : "";
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/categories${qs}`;
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<CategoryListResponse>(res);
 }
 
@@ -95,11 +87,15 @@ export async function createCategory(
   token?: string
 ): Promise<Category> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/categories`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token),
-    body: JSON.stringify(data),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    },
+    token
+  );
   return handleResponse<Category>(res);
 }
 
@@ -110,11 +106,15 @@ export async function updateCategory(
   token?: string
 ): Promise<Category> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/categories/${categoryId}`;
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: getHeaders(token),
-    body: JSON.stringify(data),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    },
+    token
+  );
   return handleResponse<Category>(res);
 }
 
@@ -124,10 +124,14 @@ export async function archiveCategory(
   token?: string
 ): Promise<Category> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/categories/${categoryId}/archive`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<Category>(res);
 }
 
@@ -173,10 +177,14 @@ export async function listProducts(
   const qs = query.toString() ? `?${query.toString()}` : "";
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/products${qs}`;
 
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<ProductListResponse>(res);
 }
 
@@ -186,10 +194,14 @@ export async function getProduct(
   token?: string
 ): Promise<Product> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/products/${productId}`;
-  const res = await fetch(url, {
-    method: "GET",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "GET",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<Product>(res);
 }
 
@@ -199,11 +211,15 @@ export async function createProduct(
   token?: string
 ): Promise<Product> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/products`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token),
-    body: JSON.stringify(data),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    },
+    token
+  );
   return handleResponse<Product>(res);
 }
 
@@ -214,11 +230,15 @@ export async function updateProduct(
   token?: string
 ): Promise<Product> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/products/${productId}`;
-  const res = await fetch(url, {
-    method: "PATCH",
-    headers: getHeaders(token),
-    body: JSON.stringify(data),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "PATCH",
+      headers: getHeaders(),
+      body: JSON.stringify(data),
+    },
+    token
+  );
   return handleResponse<Product>(res);
 }
 
@@ -228,9 +248,13 @@ export async function archiveProduct(
   token?: string
 ): Promise<Product> {
   const url = `${getApiBaseUrl()}/api/organizations/${organizationId}/products/${productId}/archive`;
-  const res = await fetch(url, {
-    method: "POST",
-    headers: getHeaders(token),
-  });
+  const res = await authorizedFetch(
+    url,
+    {
+      method: "POST",
+      headers: getHeaders(),
+    },
+    token
+  );
   return handleResponse<Product>(res);
 }

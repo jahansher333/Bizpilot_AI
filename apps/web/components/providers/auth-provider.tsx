@@ -20,12 +20,18 @@ import {
   registerUser,
 } from "@/lib/api/auth";
 import {
+  ACTIVE_ORG_KEY,
+  REFRESH_TOKEN_KEY,
+  SESSION_EXPIRED_EVENT,
+  SESSION_TOKENS_EVENT,
+  SessionTokensDetail,
+  clearStoredSession,
+  storeSessionTokens,
+} from "@/lib/api/http";
+import {
   createOrganization,
   listOrganizations,
 } from "@/lib/api/organizations";
-
-const REFRESH_TOKEN_KEY = "bizpilot_refresh_token";
-const ACTIVE_ORG_KEY = "bizpilot_active_org_id";
 
 export interface AuthContextType {
   user: UserMe | null;
@@ -75,9 +81,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
 
         setToken(tokenRes.access_token);
         setRefreshToken(tokenRes.refresh_token);
-        if (typeof window !== "undefined") {
-          localStorage.setItem(REFRESH_TOKEN_KEY, tokenRes.refresh_token);
-        }
+        storeSessionTokens(tokenRes.access_token, tokenRes.refresh_token);
 
         // Fetch user and orgs
         const [me, orgs] = await Promise.all([
@@ -104,10 +108,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {
         // Clear invalid session
-        if (typeof window !== "undefined") {
-          localStorage.removeItem(REFRESH_TOKEN_KEY);
-          localStorage.removeItem(ACTIVE_ORG_KEY);
-        }
+        clearStoredSession();
         if (isMounted) {
           setUser(null);
           setToken(null);
@@ -127,16 +128,43 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     };
   }, []);
 
+  // Keep React state in sync with refreshes done by the shared API client,
+  // and sign out when the refresh token is rejected.
+  useEffect(() => {
+    function handleTokens(event: Event) {
+      const { accessToken, refreshToken: nextRefreshToken } = (
+        event as CustomEvent<SessionTokensDetail>
+      ).detail;
+      setToken(accessToken);
+      setRefreshToken(nextRefreshToken);
+    }
+
+    function handleExpired() {
+      setUser(null);
+      setToken(null);
+      setRefreshToken(null);
+      setOrganizations([]);
+      setActiveOrgId(null);
+      if (!window.location.pathname.startsWith("/login")) {
+        window.location.assign("/login");
+      }
+    }
+
+    window.addEventListener(SESSION_TOKENS_EVENT, handleTokens);
+    window.addEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    return () => {
+      window.removeEventListener(SESSION_TOKENS_EVENT, handleTokens);
+      window.removeEventListener(SESSION_EXPIRED_EVENT, handleExpired);
+    };
+  }, []);
+
   const login = useCallback(async (credentials: LoginInput) => {
     setIsLoading(true);
     try {
       const tokens = await loginUser(credentials);
       setToken(tokens.access_token);
       setRefreshToken(tokens.refresh_token);
-
-      if (typeof window !== "undefined") {
-        localStorage.setItem(REFRESH_TOKEN_KEY, tokens.refresh_token);
-      }
+      storeSessionTokens(tokens.access_token, tokens.refresh_token);
 
       const [me, orgs] = await Promise.all([
         getCurrentUser(tokens.access_token),
@@ -176,10 +204,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    if (typeof window !== "undefined") {
-      localStorage.removeItem(REFRESH_TOKEN_KEY);
-      localStorage.removeItem(ACTIVE_ORG_KEY);
-    }
+    clearStoredSession();
 
     setUser(null);
     setToken(null);
