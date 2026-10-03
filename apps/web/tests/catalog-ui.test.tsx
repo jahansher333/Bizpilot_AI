@@ -16,7 +16,8 @@ import { ApiError } from "@/lib/api/catalog";
 import { CategoryList } from "@/components/catalog/category-list";
 import { ProductList } from "@/components/catalog/product-list";
 import { CategoryModal } from "@/components/catalog/category-modal";
-import { ProductModal } from "@/components/catalog/product-modal";
+import { ProductSheet } from "@/components/catalog/product-sheet";
+import * as inventoryApi from "@/lib/api/inventory";
 import { CatalogView } from "@/components/catalog/catalog-view";
 import * as catalogApi from "@/lib/api/catalog";
 
@@ -36,6 +37,11 @@ vi.mock("@/lib/api/catalog", async (importOriginal) => {
     archiveProduct: vi.fn(),
   };
 });
+
+vi.mock("@/lib/api/inventory", () => ({
+  fetchBalances: vi.fn(),
+  recordOpeningStock: vi.fn(),
+}));
 
 function createTestQueryClient() {
   return new QueryClient({
@@ -246,425 +252,227 @@ describe("CAT-003: Catalog Frontend Slice", () => {
   // ============================================================================
   // 5. CategoryList Component & Role Permissions
   // ============================================================================
+  // ============================================================================
+  // R4 design components
+  // ============================================================================
+  function mockCatalog(products: Product[] = mockProducts, categories: Category[] = mockCategories) {
+    vi.mocked(catalogApi.listCategories).mockResolvedValue({ items: categories, total: categories.length, limit: 100, offset: 0 });
+    vi.mocked(catalogApi.listProducts).mockImplementation(async (_org, params) => {
+      const status = params?.status;
+      const filtered = products.filter((p) => (status === "active" ? p.status === "active" : true) && (!params?.category_id || p.category_id === params.category_id));
+      return { items: filtered, total: filtered.length, limit: params?.limit ?? 50, offset: 0 };
+    });
+    vi.mocked(inventoryApi.fetchBalances).mockResolvedValue({
+      items: [
+        { id: "b1", organization_id: "org-100", product_id: mockProducts[0].id, on_hand_quantity: 4, version: 1, updated_at: "2026-09-24T00:00:00Z" },
+      ],
+      total: 1,
+      limit: 100,
+      offset: 0,
+    });
+  }
+
   describe("CategoryList Component", () => {
-    it("renders categories table and mutation controls for Owner", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: mockCategories,
-        total: 2,
-        limit: 50,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <CategoryList organizationId="org-100" userRole="owner" />
-      );
-
-      // Loading state shown initially
-      expect(screen.getByTestId("category-loading")).toBeInTheDocument();
-
-      // Wait for table to render
-      await waitFor(() => {
-        expect(screen.getByText("Beverages")).toBeInTheDocument();
-      });
-
+    it("renders categories with status and actions for Owner", async () => {
+      mockCatalog();
+      renderWithQueryClient(<CategoryList organizationId="org-100" userRole="owner" productCounts={new Map([[mockCategories[0].id, 1]])} />);
+      expect(await screen.findByText("Beverages")).toBeInTheDocument();
       expect(screen.getByText("Old Category")).toBeInTheDocument();
-      // Owner must see mutation controls
-      expect(screen.getByRole("button", { name: "+ New Category" })).toBeInTheDocument();
-      expect(screen.getByLabelText("Edit Beverages")).toBeInTheDocument();
-      expect(screen.getByLabelText("Archive Beverages")).toBeInTheDocument();
+      expect(screen.getByRole("columnheader", { name: "Products" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Rename Beverages" })).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Archive Beverages" })).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: "Archive Old Category" })).not.toBeInTheDocument();
+      expect(catalogApi.listCategories).toHaveBeenCalledWith("org-100", { status: "all", limit: 100 }, undefined);
     });
 
-    it("renders categories in read-only mode for Staff (no mutation controls)", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: mockCategories,
-        total: 2,
-        limit: 50,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <CategoryList organizationId="org-100" userRole="staff" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText("Beverages")).toBeInTheDocument();
-      });
-
-      // Staff must NOT see mutation controls
-      expect(screen.queryByRole("button", { name: "+ New Category" })).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Edit Beverages")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Archive Beverages")).not.toBeInTheDocument();
+    it("is read-only for Staff", async () => {
+      mockCatalog();
+      renderWithQueryClient(<CategoryList organizationId="org-100" userRole="staff" />);
+      expect(await screen.findByText("Beverages")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /rename/i })).not.toBeInTheDocument();
     });
 
-    it("renders empty state when no categories are returned", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        limit: 50,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <CategoryList organizationId="org-100" userRole="owner" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByTestId("category-empty")).toBeInTheDocument();
-      });
-      expect(screen.getByText("No categories found")).toBeInTheDocument();
+    it("shows an empty state", async () => {
+      mockCatalog(mockProducts, []);
+      renderWithQueryClient(<CategoryList organizationId="org-100" userRole="owner" />);
+      expect(await screen.findByText("No categories yet")).toBeInTheDocument();
     });
 
-    it("renders error state with retry button on API failure", async () => {
-      vi.mocked(catalogApi.listCategories).mockRejectedValueOnce(
-        new Error("Network connection error")
-      );
-
-      renderWithQueryClient(
-        <CategoryList organizationId="org-100" userRole="owner" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByRole("alert")).toBeInTheDocument();
-      });
-      expect(screen.getByText("Failed to load categories")).toBeInTheDocument();
-      expect(screen.getByText("Network connection error")).toBeInTheDocument();
-      expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    it("shows an error with retry", async () => {
+      vi.mocked(catalogApi.listCategories).mockRejectedValue(new Error("down"));
+      renderWithQueryClient(<CategoryList organizationId="org-100" userRole="owner" />);
+      expect(await screen.findByText("Couldn\u2019t load your categories")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: /try again/i })).toBeInTheDocument();
     });
 
-    it("opens archive confirmation dialog when Archive is clicked", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValue({
-        items: [mockCategories[0]], // active category
-        total: 1,
-        limit: 50,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <CategoryList organizationId="org-100" userRole="manager" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText("Beverages")).toBeInTheDocument();
-      });
-
-      fireEvent.click(screen.getByLabelText("Archive Beverages"));
-
-      // Archive confirmation modal should appear
-      expect(screen.getByRole("dialog")).toBeInTheDocument();
-      expect(screen.getByText("Archive Category")).toBeInTheDocument();
-      expect(
-        screen.getByText(/Are you sure you want to archive/i)
-      ).toBeInTheDocument();
-
-      // Click Cancel closes dialog
-      fireEvent.click(screen.getByRole("button", { name: "Cancel" }));
-      expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+    it("confirms before archiving and calls the API", async () => {
+      mockCatalog();
+      vi.mocked(catalogApi.archiveCategory).mockResolvedValue({ ...mockCategories[0], status: "archived" });
+      renderWithQueryClient(<CategoryList organizationId="org-100" userRole="owner" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Archive Beverages" }));
+      expect(screen.getByRole("alertdialog", { name: /archive “beverages”\?/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("button", { name: "Archive category" }));
+      await waitFor(() => expect(catalogApi.archiveCategory).toHaveBeenCalledWith("org-100", mockCategories[0].id, undefined));
     });
   });
 
-  // ============================================================================
-  // 6. CategoryModal Component
-  // ============================================================================
   describe("CategoryModal Component", () => {
-    it("validates client input and submits create request", async () => {
-      vi.mocked(catalogApi.createCategory).mockResolvedValueOnce({
-        id: "new-cat-id",
-        organization_id: "org-100",
-        name: "Dairy",
-        status: "active",
-        created_by_user_id: "user-1",
-        created_at: "2026-09-23T12:00:00Z",
-        updated_at: "2026-09-23T12:00:00Z",
-        archived_at: null,
-      });
+    it("validates and creates a category", async () => {
+      vi.mocked(catalogApi.createCategory).mockResolvedValue(mockCategories[0]);
+      const onClose = vi.fn();
+      renderWithQueryClient(<CategoryModal organizationId="org-100" isOpen onClose={onClose} />);
+      fireEvent.change(screen.getByLabelText("Category name"), { target: { value: "A" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create category" }));
+      expect(await screen.findByRole("alert")).toHaveTextContent(/at least 2 characters/i);
 
-      const handleClose = vi.fn();
-      renderWithQueryClient(
-        <CategoryModal
-          isOpen={true}
-          onClose={handleClose}
-          organizationId="org-100"
-          category={null}
-        />
-      );
-
-      expect(screen.getByRole("heading", { name: "New Category" })).toBeInTheDocument();
-
-      const input = screen.getByLabelText(/Category Name/i);
-      fireEvent.change(input, { target: { value: "Dairy" } });
-
-      const submitBtn = screen.getByRole("button", { name: "Create Category" });
-      fireEvent.click(submitBtn);
-
-      await waitFor(() => {
-        expect(catalogApi.createCategory).toHaveBeenCalledWith(
-          "org-100",
-          { name: "Dairy" },
-          undefined
-        );
-        expect(handleClose).toHaveBeenCalled();
-      });
+      fireEvent.change(screen.getByLabelText("Category name"), { target: { value: "Spices" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create category" }));
+      await waitFor(() => expect(catalogApi.createCategory).toHaveBeenCalledWith("org-100", { name: "Spices" }, undefined));
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
     });
 
-    it("displays validation error when submitting too short name", async () => {
-      renderWithQueryClient(
-        <CategoryModal
-          isOpen={true}
-          onClose={vi.fn()}
-          organizationId="org-100"
-          category={null}
-        />
-      );
-
-      const input = screen.getByLabelText(/Category Name/i);
-      fireEvent.change(input, { target: { value: "A" } });
-
-      const submitBtn = screen.getByRole("button", { name: "Create Category" });
-      fireEvent.click(submitBtn);
-
-      await waitFor(() => {
-        expect(
-          screen.getByText("Category name must be at least 2 characters")
-        ).toBeInTheDocument();
-      });
-      expect(catalogApi.createCategory).not.toHaveBeenCalled();
+    it("renames an existing category", async () => {
+      vi.mocked(catalogApi.updateCategory).mockResolvedValue({ ...mockCategories[0], name: "Drinks" });
+      renderWithQueryClient(<CategoryModal organizationId="org-100" isOpen onClose={vi.fn()} category={mockCategories[0]} />);
+      expect(screen.getByLabelText("Category name")).toHaveValue("Beverages");
+      fireEvent.change(screen.getByLabelText("Category name"), { target: { value: "Drinks" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save name" }));
+      await waitFor(() => expect(catalogApi.updateCategory).toHaveBeenCalledWith("org-100", mockCategories[0].id, { name: "Drinks" }, undefined));
     });
   });
 
-  // ============================================================================
-  // 7. ProductList Component & Role Permissions
-  // ============================================================================
   describe("ProductList Component", () => {
-    it("renders products table with formatted PKR prices and controls for Owner", async () => {
-      vi.mocked(catalogApi.listProducts).mockResolvedValueOnce({
-        items: mockProducts,
-        total: 2,
-        limit: 50,
-        offset: 0,
-      });
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: mockCategories,
-        total: 2,
-        limit: 200,
-        offset: 0,
-      });
+    it("shows summary, PKR prices, stock and category names for Owner", async () => {
+      mockCatalog();
+      renderWithQueryClient(<ProductList organizationId="org-100" userRole="owner" />);
+      const summary = await screen.findByRole("region", { name: "Catalog summary" });
+      await waitFor(() => expect(summary).toHaveTextContent("Low stock1"));
 
-      renderWithQueryClient(
-        <ProductList organizationId="org-100" userRole="owner" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText("TEA-001")).toBeInTheDocument();
-      });
-
-      expect(screen.getByText("Black Tea 500g")).toBeInTheDocument();
-      expect(screen.getByText("PKR 450.00")).toBeInTheDocument();
-      expect(screen.getByText("WATER-01")).toBeInTheDocument();
-      expect(screen.getByText("PKR 120.00")).toBeInTheDocument();
-
-      // Owner controls
-      expect(screen.getByRole("button", { name: "+ New Product" })).toBeInTheDocument();
-      expect(screen.getByLabelText("Edit Black Tea 500g")).toBeInTheDocument();
-      expect(screen.getByLabelText("Archive Black Tea 500g")).toBeInTheDocument();
+      const table = screen.getByRole("table");
+      expect(table).toHaveTextContent("Black Tea 500g");
+      expect(table).toHaveTextContent("450");
+      expect(table).toHaveTextContent("Beverages");
+      expect(table).toHaveTextContent("low stock");
+      expect(screen.getAllByRole("link", { name: "Black Tea 500g" })[0]).toHaveAttribute("href", `/workspace/org-100/inventory/${mockProducts[0].id}`);
+      expect(screen.getByRole("button", { name: "Edit Black Tea 500g" })).toBeInTheDocument();
     });
 
-    it("renders products in read-only mode for Staff", async () => {
-      vi.mocked(catalogApi.listProducts).mockResolvedValueOnce({
-        items: mockProducts,
-        total: 2,
-        limit: 50,
-        offset: 0,
-      });
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: mockCategories,
-        total: 2,
-        limit: 200,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <ProductList organizationId="org-100" userRole="staff" />
-      );
-
-      await waitFor(() => {
-        expect(screen.getByText("TEA-001")).toBeInTheDocument();
-      });
-
-      // Staff must NOT see mutation controls
-      expect(screen.queryByRole("button", { name: "+ New Product" })).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Edit Black Tea 500g")).not.toBeInTheDocument();
-      expect(screen.queryByLabelText("Archive Black Tea 500g")).not.toBeInTheDocument();
+    it("is read-only for Staff", async () => {
+      mockCatalog();
+      renderWithQueryClient(<ProductList organizationId="org-100" userRole="staff" />);
+      expect(await screen.findByRole("table")).toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^edit/i })).not.toBeInTheDocument();
+      expect(screen.queryByRole("button", { name: /^archive/i })).not.toBeInTheDocument();
     });
 
-    it("renders empty state when no products match", async () => {
-      vi.mocked(catalogApi.listProducts).mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        limit: 50,
-        offset: 0,
-      });
-      vi.mocked(catalogApi.listCategories).mockResolvedValueOnce({
-        items: [],
-        total: 0,
-        limit: 200,
-        offset: 0,
-      });
+    it("searches by name or code and offers to add a missing product", async () => {
+      mockCatalog();
+      renderWithQueryClient(<ProductList organizationId="org-100" userRole="owner" />);
+      await screen.findByRole("table");
+      fireEvent.change(screen.getByLabelText("Search products"), { target: { value: "WATER" } });
+      expect(screen.getByRole("table")).toHaveTextContent("Mineral Water 1.5L");
+      expect(screen.getByRole("table")).not.toHaveTextContent("Black Tea 500g");
 
-      renderWithQueryClient(
-        <ProductList organizationId="org-100" userRole="owner" />
+      fireEvent.change(screen.getByLabelText("Search products"), { target: { value: "Saffron" } });
+      expect(screen.getByText("No products match “Saffron”")).toBeInTheDocument();
+      expect(screen.getByRole("button", { name: "Add “Saffron” as product" })).toBeInTheDocument();
+    });
+
+    it("filters by category on the server", async () => {
+      mockCatalog();
+      renderWithQueryClient(<ProductList organizationId="org-100" userRole="owner" />);
+      fireEvent.click(await screen.findByRole("button", { name: "Beverages" }));
+      await waitFor(() =>
+        expect(catalogApi.listProducts).toHaveBeenCalledWith("org-100", expect.objectContaining({ category_id: mockCategories[0].id }), undefined)
       );
+    });
 
-      await waitFor(() => {
-        expect(screen.getByTestId("product-empty")).toBeInTheDocument();
-      });
-      expect(screen.getByText("No products found")).toBeInTheDocument();
+    it("shows the first-product empty state", async () => {
+      mockCatalog([], mockCategories);
+      renderWithQueryClient(<ProductList organizationId="org-100" userRole="owner" />);
+      expect(await screen.findByText("Add your first product")).toBeInTheDocument();
     });
   });
 
-  // ============================================================================
-  // 8. ProductModal Component
-  // ============================================================================
-  describe("ProductModal Component", () => {
-    it("submits create product with major price parsed to minor units", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValue({
-        items: mockCategories,
-        total: 2,
-        limit: 100,
-        offset: 0,
-      });
+  describe("ProductSheet Component", () => {
+    it("creates a product with price in minor units, then records opening stock", async () => {
+      mockCatalog();
+      vi.mocked(catalogApi.createProduct).mockResolvedValue({ ...mockProducts[0], id: "prod-new" });
+      vi.mocked(inventoryApi.recordOpeningStock).mockResolvedValue({} as never);
+      const onClose = vi.fn();
+      renderWithQueryClient(<ProductSheet organizationId="org-100" open onClose={onClose} />);
 
-      vi.mocked(catalogApi.createProduct).mockResolvedValueOnce({
-        id: "prod-new",
-        organization_id: "org-100",
-        category_id: "cat-1111-1111-1111-111111111111",
-        code: "COFFEE-01",
-        name: "Coffee Beans 1kg",
-        base_unit: "pack",
-        default_price_minor: 250000,
-        currency_code: "PKR",
-        status: "active",
-        created_by_user_id: "user-1",
-        created_at: "2026-09-23T12:00:00Z",
-        updated_at: "2026-09-23T12:00:00Z",
-        archived_at: null,
-      });
+      fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Green Tea 250g" } });
+      fireEvent.change(screen.getByLabelText("Product code"), { target: { value: "TEA-002" } });
+      fireEvent.change(screen.getByLabelText("Selling price"), { target: { value: "520.50" } });
+      fireEvent.change(screen.getByLabelText(/opening stock/i), { target: { value: "40" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create product" }));
 
-      const handleClose = vi.fn();
-      renderWithQueryClient(
-        <ProductModal
-          isOpen={true}
-          onClose={handleClose}
-          organizationId="org-100"
-          product={null}
-        />
-      );
-
-      expect(screen.getByRole("heading", { name: "New Product" })).toBeInTheDocument();
-
-      fireEvent.change(screen.getByLabelText(/Code \/ SKU/i), {
-        target: { value: "COFFEE-01" },
-      });
-      fireEvent.change(screen.getByLabelText(/Product Name/i), {
-        target: { value: "Coffee Beans 1kg" },
-      });
-      fireEvent.change(screen.getByLabelText(/Base Unit/i), {
-        target: { value: "pack" },
-      });
-      fireEvent.change(screen.getByLabelText(/Default Price/i), {
-        target: { value: "2500.00" },
-      });
-
-      fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
-
-      await waitFor(() => {
+      await waitFor(() =>
         expect(catalogApi.createProduct).toHaveBeenCalledWith(
           "org-100",
-          {
-            code: "COFFEE-01",
-            name: "Coffee Beans 1kg",
-            base_unit: "pack",
-            default_price_minor: 250000,
-            category_id: null,
-          },
+          { code: "TEA-002", name: "Green Tea 250g", base_unit: "piece", default_price_minor: 52050, category_id: null },
           undefined
-        );
-        expect(handleClose).toHaveBeenCalled();
-      });
+        )
+      );
+      await waitFor(() =>
+        expect(inventoryApi.recordOpeningStock).toHaveBeenCalledWith("org-100", { product_id: "prod-new", quantity: 40, reason: "Opening stock" }, undefined)
+      );
+      await waitFor(() => expect(onClose).toHaveBeenCalled());
     });
 
-    it("displays validation error when price is invalid", async () => {
-      vi.mocked(catalogApi.listCategories).mockResolvedValue({
-        items: [],
-        total: 0,
-        limit: 100,
-        offset: 0,
-      });
-
-      renderWithQueryClient(
-        <ProductModal
-          isOpen={true}
-          onClose={vi.fn()}
-          organizationId="org-100"
-          product={null}
-        />
-      );
-
-      fireEvent.change(screen.getByLabelText(/Code \/ SKU/i), {
-        target: { value: "P-1" },
-      });
-      fireEvent.change(screen.getByLabelText(/Product Name/i), {
-        target: { value: "Product One" },
-      });
-      fireEvent.change(screen.getByLabelText(/Default Price/i), {
-        target: { value: "invalid-price" },
-      });
-
-      fireEvent.click(screen.getByRole("button", { name: "Create Product" }));
-
-      await waitFor(() => {
-        expect(
-          screen.getByText(/Invalid price format/i)
-        ).toBeInTheDocument();
-      });
+    it("shows field errors for an invalid price", async () => {
+      mockCatalog();
+      renderWithQueryClient(<ProductSheet organizationId="org-100" open onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Green Tea" } });
+      fireEvent.change(screen.getByLabelText("Product code"), { target: { value: "TEA-002" } });
+      fireEvent.change(screen.getByLabelText("Selling price"), { target: { value: "12.345" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+      expect(await screen.findByText(/at most 2 decimal places/i)).toBeInTheDocument();
       expect(catalogApi.createProduct).not.toHaveBeenCalled();
+    });
+
+    it("shows a duplicate code from the server on the code field", async () => {
+      mockCatalog();
+      vi.mocked(catalogApi.createProduct).mockRejectedValue(new ApiError("Product code already exists", 409, "CONFLICT"));
+      renderWithQueryClient(<ProductSheet organizationId="org-100" open onClose={vi.fn()} />);
+      fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Green Tea" } });
+      fireEvent.change(screen.getByLabelText("Product code"), { target: { value: "TEA-001" } });
+      fireEvent.change(screen.getByLabelText("Selling price"), { target: { value: "500" } });
+      fireEvent.click(screen.getByRole("button", { name: "Create product" }));
+      expect(await screen.findByText("Product code already exists")).toBeInTheDocument();
+      expect(screen.getByLabelText("Product code")).toHaveAttribute("aria-invalid", "true");
+    });
+
+    it("prefills and updates an existing product", async () => {
+      mockCatalog();
+      vi.mocked(catalogApi.updateProduct).mockResolvedValue(mockProducts[0]);
+      renderWithQueryClient(<ProductSheet organizationId="org-100" open onClose={vi.fn()} product={{ ...mockProducts[0], category_id: null }} />);
+      expect(screen.getByLabelText("Selling price")).toHaveValue("450");
+      expect(screen.queryByLabelText(/opening stock/i)).not.toBeInTheDocument();
+      fireEvent.change(screen.getByLabelText("Selling price"), { target: { value: "480" } });
+      fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+      await waitFor(() =>
+        expect(catalogApi.updateProduct).toHaveBeenCalledWith("org-100", mockProducts[0].id, expect.objectContaining({ default_price_minor: 48000 }), undefined)
+      );
     });
   });
 
-  // ============================================================================
-  // 9. CatalogView Component (Tabs & Role Switcher)
-  // ============================================================================
   describe("CatalogView Component", () => {
-    it("switches tabs between Products and Categories", async () => {
-      vi.mocked(catalogApi.listProducts).mockResolvedValue({
-        items: [],
-        total: 0,
-        limit: 50,
-        offset: 0,
-      });
-      vi.mocked(catalogApi.listCategories).mockResolvedValue({
-        items: [],
-        total: 0,
-        limit: 50,
-        offset: 0,
-      });
+    it("switches between Products and Categories with counts", async () => {
+      mockCatalog();
+      renderWithQueryClient(<CatalogView organizationId="org-100" userRole="owner" />);
+      expect(await screen.findByRole("button", { name: /add product/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole("tab", { name: /categories/i }));
+      expect(await screen.findByRole("button", { name: /new category/i })).toBeInTheDocument();
+      expect(screen.getByRole("tab", { name: /categories/i })).toHaveAttribute("aria-selected", "true");
+    });
 
-      renderWithQueryClient(
-        <CatalogView organizationId="org-100" userRole="owner" />
-      );
-
-      expect(screen.getByText("Catalog Management")).toBeInTheDocument();
-
-      // Initially on Products tab
-      await waitFor(() => {
-        expect(screen.getByTestId("product-empty")).toBeInTheDocument();
-      });
-
-      // Click Categories tab
-      fireEvent.click(screen.getByRole("button", { name: "Categories" }));
-
-      await waitFor(() => {
-        expect(screen.getByTestId("category-empty")).toBeInTheDocument();
-      });
+    it("hides create actions for Staff", async () => {
+      mockCatalog();
+      renderWithQueryClient(<CatalogView organizationId="org-100" userRole="staff" />);
+      await screen.findByRole("tab", { name: /products/i });
+      expect(screen.queryByRole("button", { name: /add product/i })).not.toBeInTheDocument();
     });
   });
 });

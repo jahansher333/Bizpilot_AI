@@ -1,340 +1,371 @@
 "use client";
 
-import { useState } from "react";
-import { Product, formatPriceMinor } from "@/lib/schemas/catalog";
-import { useProducts, useCategories, useArchiveProduct } from "@/hooks/use-catalog";
-import { ProductModal } from "./product-modal";
+import React, { useMemo, useState } from "react";
+import Link from "next/link";
+import { Product } from "@/lib/schemas/catalog";
+import { useArchiveProduct, useCategories, useProducts } from "@/hooks/use-catalog";
+import { useInventoryBalances } from "@/hooks/use-inventory";
+import { LOW_STOCK_THRESHOLD, productThumb, stockStatus } from "@/lib/stock";
+import { Icon } from "@/components/ui/icon";
+import { Money } from "@/components/ui/money";
+import { Modal } from "@/components/ui/modal";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
+import { useToast } from "@/components/ui/toast";
+import { ProductSheet } from "@/components/catalog/product-sheet";
 
 export interface ProductListProps {
   organizationId: string;
   userRole: "owner" | "manager" | "staff";
   token?: string;
+  addOpen?: boolean;
+  onAddOpenChange?: (open: boolean) => void;
+  onShowCategories?: () => void;
 }
 
-export function ProductList({ organizationId, userRole, token }: ProductListProps) {
-  const [statusFilter, setStatusFilter] = useState<"all" | "active" | "archived">("active");
-  const [categoryFilter, setCategoryFilter] = useState<string>("");
-  const [isModalOpen, setIsModalOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
-  const [archivingProduct, setArchivingProduct] = useState<Product | null>(null);
-  const [archiveError, setArchiveError] = useState<string | null>(null);
+const PAGE_SIZE = 100;
+const STOCK_COLOR = { healthy: "var(--text-primary)", low: "var(--warning)", out: "var(--danger)", untracked: "var(--text-muted)" } as const;
 
+/** Design "09 · Products" tab. */
+export function ProductList({ organizationId, userRole, token, addOpen = false, onAddOpenChange, onShowCategories }: ProductListProps) {
   const canMutate = userRole === "owner" || userRole === "manager";
+  const [query, setQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
+  const [showArchived, setShowArchived] = useState(false);
+  const [page, setPage] = useState(0);
+  const [editing, setEditing] = useState<Product | null>(null);
+  const [archiving, setArchiving] = useState<Product | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
+  const [prefillName, setPrefillName] = useState("");
+  const { notify } = useToast();
 
-  const {
-    data: productsData,
-    isLoading: isProductsLoading,
-    isError: isProductsError,
-    error: productsError,
-    refetch: refetchProducts,
-  } = useProducts(
+  const { data, isLoading, error, refetch } = useProducts(
     organizationId,
-    {
-      status: statusFilter,
-      category_id: categoryFilter || undefined,
-    },
+    { status: showArchived ? "all" : "active", category_id: categoryFilter || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE },
     token
   );
-
-  // Fetch categories for filtering and name lookup
-  const { data: categoriesData } = useCategories(
-    organizationId,
-    { status: "all", limit: 200 },
-    token
-  );
-
+  const { data: allTotal } = useProducts(organizationId, { status: "all", limit: 1 }, token);
+  const { data: activeTotal } = useProducts(organizationId, { status: "active", limit: 1 }, token);
+  const { data: categories } = useCategories(organizationId, { status: "all", limit: 100 }, token);
+  const { data: balances } = useInventoryBalances(organizationId, 100, 0, token);
   const archiveMutation = useArchiveProduct(organizationId, token);
 
-  const categoryMap = new Map<string, string>();
-  categoriesData?.items.forEach((cat) => {
-    categoryMap.set(cat.id, cat.name);
-  });
+  const categoryName = useMemo(() => new Map((categories?.items ?? []).map((c) => [c.id, c.name])), [categories]);
+  const activeCategories = (categories?.items ?? []).filter((c) => c.status === "active");
+  const onHand = useMemo(() => new Map((balances?.items ?? []).map((b) => [b.product_id, b.on_hand_quantity])), [balances]);
 
-  const handleOpenCreate = () => {
-    setSelectedProduct(null);
-    setIsModalOpen(true);
-  };
+  const products = data?.items ?? [];
+  const q = query.trim().toLowerCase();
+  const rows = q ? products.filter((p) => `${p.name} ${p.code}`.toLowerCase().includes(q)) : products;
 
-  const handleOpenEdit = (product: Product) => {
-    setSelectedProduct(product);
-    setIsModalOpen(true);
-  };
+  const activeStatuses = products.filter((p) => p.status === "active").map((p) => stockStatus(onHand.get(p.id)));
+  const lowCount = activeStatuses.filter((s) => s === "low").length;
+  const outCount = activeStatuses.filter((s) => s === "out").length;
 
-  const handleConfirmArchive = async () => {
-    if (!archivingProduct) return;
+  async function confirmArchive() {
+    if (!archiving) return;
     setArchiveError(null);
     try {
-      await archiveMutation.mutateAsync(archivingProduct.id);
-      setArchivingProduct(null);
-    } catch (err: unknown) {
-      if (err instanceof Error) {
-        setArchiveError(err.message);
-      } else {
-        setArchiveError("Failed to archive product");
-      }
+      await archiveMutation.mutateAsync(archiving.id);
+      notify({ title: `“${archiving.name}” archived`, description: "It can’t be added to new orders. Past orders keep it." });
+      setArchiving(null);
+    } catch (err) {
+      setArchiveError(err instanceof Error && err.message ? err.message : "Couldn’t archive the product.");
     }
-  };
+  }
 
-  const products = productsData?.items ?? [];
+  function openAdd(name = "") {
+    setPrefillName(name);
+    onAddOpenChange?.(true);
+  }
+
+  const sheetOpen = addOpen || !!editing;
+  const showEmpty = !!data && data.total === 0 && !categoryFilter && !showArchived;
 
   return (
-    <div className="space-y-4">
-      {/* Header controls & filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="flex flex-wrap items-center gap-3">
-          <div className="flex items-center space-x-2">
-            <label htmlFor="product-status-filter" className="text-sm font-medium text-slate-700">
-              Status:
-            </label>
-            <select
-              id="product-status-filter"
-              value={statusFilter}
-              onChange={(e) => setStatusFilter(e.target.value as "all" | "active" | "archived")}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="active">Active</option>
-              <option value="archived">Archived</option>
-              <option value="all">All</option>
-            </select>
-          </div>
+    <div className="fade-in" style={{ display: "flex", flexDirection: "column", gap: 20 }}>
+      <section className="sum-grid" aria-label="Catalog summary">
+        <SummaryCard label="Total products" value={allTotal?.total} />
+        <SummaryCard label="Active" value={activeTotal?.total} />
+        <SummaryCard label="Low stock" value={balances ? lowCount : undefined} tone="low" />
+        <SummaryCard label="Out of stock" value={balances ? outCount : undefined} tone="out" />
+      </section>
 
-          <div className="flex items-center space-x-2">
-            <label htmlFor="product-category-filter" className="text-sm font-medium text-slate-700">
-              Category:
-            </label>
-            <select
-              id="product-category-filter"
-              value={categoryFilter}
-              onChange={(e) => setCategoryFilter(e.target.value)}
-              className="rounded-lg border border-slate-300 bg-white px-3 py-1.5 text-sm text-slate-900 shadow-sm focus:border-emerald-500 focus:outline-none focus:ring-1 focus:ring-emerald-500"
-            >
-              <option value="">All Categories</option>
-              {categoriesData?.items.map((cat) => (
-                <option key={cat.id} value={cat.id}>
-                  {cat.name} {cat.status === "archived" ? "(Archived)" : ""}
+      <div className="toolbar">
+        <div className="ig" style={{ width: 320, maxWidth: "100%", height: 36 }}>
+          <span className="pre plain">
+            <Icon name="search" />
+          </span>
+          <input placeholder="Search by name or code" aria-label="Search products" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+        {activeCategories.length > 0 && activeCategories.length <= 6 ? (
+          <>
+            <button type="button" className="chip" aria-pressed={categoryFilter === ""} onClick={() => setCategoryFilter("")}>
+              All categories
+            </button>
+            {activeCategories.map((c) => (
+              <button key={c.id} type="button" className="chip" aria-pressed={categoryFilter === c.id} onClick={() => setCategoryFilter(c.id)}>
+                {c.name}
+              </button>
+            ))}
+          </>
+        ) : (
+          activeCategories.length > 6 && (
+            <select className="input" style={{ width: 200, height: 36 }} aria-label="Filter by category" value={categoryFilter} onChange={(e) => setCategoryFilter(e.target.value)}>
+              <option value="">All categories</option>
+              {activeCategories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
                 </option>
               ))}
             </select>
-          </div>
-        </div>
-
-        {canMutate && (
-          <button
-            type="button"
-            onClick={handleOpenCreate}
-            className="inline-flex items-center justify-center rounded-lg bg-emerald-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-700 focus:outline-none"
-          >
-            + New Product
-          </button>
+          )
         )}
+        <span style={{ flex: 1 }} />
+        <label className="check">
+          <input
+            type="checkbox"
+            checked={showArchived}
+            onChange={() => {
+              setShowArchived((v) => !v);
+              setPage(0);
+            }}
+          />
+          Show archived
+        </label>
       </div>
 
-      {/* Error state */}
-      {isProductsError && (
-        <div role="alert" className="rounded-lg bg-red-50 p-4 text-sm text-red-700">
-          <p className="font-medium">Failed to load products</p>
-          <p className="mt-1 text-xs">
-            {productsError instanceof Error ? productsError.message : "Network error"}
-          </p>
-          <button
-            type="button"
-            onClick={() => refetchProducts()}
-            className="mt-2 text-xs font-semibold text-red-800 underline hover:text-red-900"
-          >
-            Retry
-          </button>
+      {error && <ErrorState title="Couldn’t load your products" message="Nothing was lost — check your connection, then try again." onRetry={() => void refetch()} />}
+
+      {isLoading && (
+        <div className="tbl-wrap" aria-busy="true" aria-label="Loading products">
+          <div style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+            {[180, 140, 200, 160, 120].map((w) => (
+              <div key={w} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+                <Skeleton width={34} height={34} radius={6} />
+                <Skeleton width={w} height={12} />
+              </div>
+            ))}
+          </div>
         </div>
       )}
 
-      {/* Loading state */}
-      {isProductsLoading && (
-        <div data-testid="product-loading" className="space-y-2 py-4">
-          <div className="h-12 w-full animate-pulse rounded bg-slate-100" />
-          <div className="h-12 w-full animate-pulse rounded bg-slate-100" />
-          <div className="h-12 w-full animate-pulse rounded bg-slate-100" />
+      {showEmpty && (
+        <div className="card">
+          <EmptyState
+            icon="products"
+            title="Add your first product"
+            description="Products power your orders, stock levels and AI answers. Start with the items you sell most — you can add the rest later."
+            action={
+              canMutate ? (
+                <>
+                  <button type="button" className="btn btn-primary" onClick={() => openAdd()}>
+                    Add product
+                  </button>
+                  <button type="button" className="btn btn-secondary" onClick={onShowCategories}>
+                    Set up categories
+                  </button>
+                </>
+              ) : undefined
+            }
+          />
         </div>
       )}
 
-      {/* Empty state */}
-      {!isProductsLoading && !isProductsError && products.length === 0 && (
-        <div data-testid="product-empty" className="rounded-xl border border-dashed border-slate-300 p-8 text-center">
-          <p className="text-sm font-medium text-slate-700">No products found</p>
-          <p className="mt-1 text-xs text-slate-500">
-            {categoryFilter || statusFilter !== "all"
-              ? "No products match the selected filters."
-              : "Add your first product to build your catalog."}
-          </p>
-          {canMutate && (
-            <button
-              type="button"
-              onClick={handleOpenCreate}
-              className="mt-3 inline-flex items-center rounded-lg bg-emerald-50 px-3 py-1.5 text-xs font-medium text-emerald-700 hover:bg-emerald-100"
-            >
-              Add Product
-            </button>
-          )}
-        </div>
-      )}
-
-      {/* Product table (desktop) / cards (mobile) */}
-      {!isProductsLoading && !isProductsError && products.length > 0 && (
-        <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm text-slate-600">
-              <thead className="border-b border-slate-200 bg-slate-50 text-xs font-semibold uppercase text-slate-500">
-                <tr>
-                  <th scope="col" className="px-4 py-3">
-                    Code / SKU
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Product Name
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Category
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Base Unit
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Default Price
-                  </th>
-                  <th scope="col" className="px-4 py-3">
-                    Status
-                  </th>
+      {data && !showEmpty && rows.length === 0 && (
+        <div className="card">
+          <EmptyState
+            icon="search"
+            title={q ? `No products match “${query.trim()}”` : "No products in this view"}
+            description={q ? "Check the spelling or search by product code." : "Try another category, or show archived products."}
+            action={
+              q ? (
+                <>
+                  <button type="button" className="btn btn-secondary" onClick={() => setQuery("")}>
+                    Clear search
+                  </button>
                   {canMutate && (
-                    <th scope="col" className="px-4 py-3 text-right">
-                      Actions
+                    <button type="button" className="btn btn-primary" onClick={() => openAdd(query.trim())}>
+                      Add “{query.trim()}” as product
+                    </button>
+                  )}
+                </>
+              ) : undefined
+            }
+          />
+        </div>
+      )}
+
+      {rows.length > 0 && (
+        <>
+          <div className="tbl-wrap desk-only">
+            <table className="tbl">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Code</th>
+                  <th>Category</th>
+                  <th className="r">Price</th>
+                  <th className="r">Stock</th>
+                  <th>Status</th>
+                  {canMutate && (
+                    <th className="r">
+                      <span className="sr-only">Actions</span>
                     </th>
                   )}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100">
-                {products.map((prod) => (
-                  <tr key={prod.id} className="hover:bg-slate-50/50">
-                    <td className="px-4 py-3 font-mono text-xs font-medium text-slate-900">
-                      {prod.code}
-                    </td>
-                    <td className="px-4 py-3 font-medium text-slate-900">{prod.name}</td>
-                    <td className="px-4 py-3 text-xs text-slate-500">
-                      {prod.category_id ? (
-                        categoryMap.get(prod.category_id) || "Assigned"
-                      ) : (
-                        <span className="italic text-slate-400">Uncategorized</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-xs text-slate-600">{prod.base_unit}</td>
-                    <td className="px-4 py-3 font-medium text-slate-900">
-                      {formatPriceMinor(prod.default_price_minor, prod.currency_code)}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                          prod.status === "active"
-                            ? "bg-emerald-50 text-emerald-700"
-                            : "bg-slate-100 text-slate-600"
-                        }`}
-                      >
-                        {prod.status}
-                      </span>
-                    </td>
-                    {canMutate && (
-                      <td className="px-4 py-3 text-right">
-                        <div className="inline-flex items-center space-x-2">
-                          <button
-                            type="button"
-                            onClick={() => handleOpenEdit(prod)}
-                            className="rounded px-2 py-1 text-xs font-medium text-slate-600 hover:bg-slate-100 hover:text-slate-900"
-                            aria-label={`Edit ${prod.name}`}
-                          >
-                            Edit
-                          </button>
-                          {prod.status === "active" ? (
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setArchiveError(null);
-                                setArchivingProduct(prod);
-                              }}
-                              className="rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50 hover:text-red-700"
-                              aria-label={`Archive ${prod.name}`}
-                            >
-                              Archive
-                            </button>
-                          ) : (
-                            <span className="px-2 py-1 text-xs text-slate-400">Archived</span>
-                          )}
+              <tbody>
+                {rows.map((p) => {
+                  const archived = p.status === "archived";
+                  const qty = onHand.get(p.id);
+                  const status = stockStatus(qty);
+                  return (
+                    <tr key={p.id} className={archived ? "is-void" : ""}>
+                      <td>
+                        <div className="cell-main">
+                          <span className="thumb">{productThumb(p.code, p.name)}</span>
+                          <Link className="t" href={`/workspace/${organizationId}/inventory/${p.id}`}>
+                            {p.name}
+                          </Link>
                         </div>
                       </td>
-                    )}
-                  </tr>
-                ))}
+                      <td className="mono muted">{p.code}</td>
+                      <td className="secondary">{p.category_id ? categoryName.get(p.category_id) ?? "—" : "—"}</td>
+                      <td className="r">
+                        <Money amountMinor={p.default_price_minor} currency={p.currency_code} className="strong" />
+                      </td>
+                      <td className="r">
+                        <span style={{ display: "inline-flex", alignItems: "center", gap: 6, color: archived ? "var(--text-muted)" : STOCK_COLOR[status], fontWeight: 500 }}>
+                          {!archived && status === "low" && <Icon name="alert" size="sm" />}
+                          {!archived && status === "out" && <Icon name="close" size="sm" />}
+                          {qty ?? "—"}
+                          <span className="sr-only">{status === "low" ? " — low stock" : status === "out" ? " — out of stock" : status === "untracked" ? " — no stock recorded" : ""}</span>
+                        </span>
+                      </td>
+                      <td>
+                        <span className={`badge ${archived ? "b-neutral" : "b-success"}`}>{archived ? "Archived" : "Active"}</span>
+                      </td>
+                      {canMutate && (
+                        <td className="r">
+                          {!archived && (
+                            <span className="row-actions">
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setEditing(p)} aria-label={`Edit ${p.name}`}>
+                                Edit
+                              </button>
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => setArchiving(p)} aria-label={`Archive ${p.name}`}>
+                                Archive
+                              </button>
+                            </span>
+                          )}
+                        </td>
+                      )}
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
-          </div>
-        </div>
-      )}
-
-      {/* Product Modal */}
-      {isModalOpen && (
-        <ProductModal
-          isOpen={isModalOpen}
-          onClose={() => setIsModalOpen(false)}
-          organizationId={organizationId}
-          product={selectedProduct}
-          token={token}
-        />
-      )}
-
-      {/* Archive Confirmation Dialog */}
-      {archivingProduct && (
-        <div
-          role="dialog"
-          aria-modal="true"
-          aria-labelledby="archive-product-title"
-          className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/50 p-4"
-        >
-          <div className="w-full max-w-sm rounded-xl bg-white p-6 shadow-xl">
-            <h3 id="archive-product-title" className="text-base font-semibold text-slate-900">
-              Archive Product
-            </h3>
-            <p className="mt-2 text-sm text-slate-600">
-              Are you sure you want to archive{" "}
-              <strong>
-                [{archivingProduct.code}] {archivingProduct.name}
-              </strong>
-              ?
-            </p>
-            <p className="mt-1 text-xs text-slate-500">
-              Its code can be reused by a new product once archived. Historical records referencing it remain unchanged.
-            </p>
-
-            {archiveError && (
-              <div role="alert" className="mt-3 rounded bg-red-50 p-2 text-xs text-red-700">
-                {archiveError}
+            {data && data.total > PAGE_SIZE && (
+              <div className="pager">
+                <span>
+                  Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} of {data.total}
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                    Previous
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={(page + 1) * PAGE_SIZE >= data.total} onClick={() => setPage((p) => p + 1)}>
+                    Next
+                  </button>
+                </div>
               </div>
             )}
-
-            <div className="mt-4 flex justify-end space-x-2">
-              <button
-                type="button"
-                onClick={() => setArchivingProduct(null)}
-                disabled={archiveMutation.isPending}
-                className="rounded-lg border border-slate-300 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmArchive}
-                disabled={archiveMutation.isPending}
-                className="rounded-lg bg-red-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-red-700 disabled:opacity-50"
-              >
-                {archiveMutation.isPending ? "Archiving..." : "Archive"}
-              </button>
-            </div>
           </div>
-        </div>
+
+          <ul className="only-sm" style={{ flexDirection: "column", gap: 8 }} aria-label="Products">
+            {rows.map((p) => {
+              const qty = onHand.get(p.id);
+              const status = stockStatus(qty);
+              return (
+                <li key={p.id} className="card" style={{ padding: "12px 14px", display: "flex", gap: 12, alignItems: "center" }}>
+                  <span className="thumb lg">{productThumb(p.code, p.name)}</span>
+                  <div style={{ flex: 1, minWidth: 0, display: "flex", flexDirection: "column", gap: 2 }}>
+                    <Link className="strong t-body-sm" href={`/workspace/${organizationId}/inventory/${p.id}`} style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+                      {p.name}
+                    </Link>
+                    <span className="mono muted" style={{ fontSize: 11.5 }}>
+                      {p.code}
+                      {p.category_id ? ` · ${categoryName.get(p.category_id) ?? ""}` : ""}
+                    </span>
+                    <span className="t-body-sm" style={{ color: STOCK_COLOR[status] }}>
+                      {qty === undefined ? "No stock recorded" : `${qty} ${p.base_unit} in stock`}
+                    </span>
+                  </div>
+                  <Money amountMinor={p.default_price_minor} currency={p.currency_code} className="strong t-body-sm" />
+                </li>
+              );
+            })}
+          </ul>
+        </>
       )}
+
+      <p className="t-caption">Low stock means {LOW_STOCK_THRESHOLD} or fewer on hand.</p>
+
+      <ProductSheet
+        organizationId={organizationId}
+        token={token}
+        open={sheetOpen}
+        product={editing}
+        initialName={prefillName}
+        onClose={() => {
+          setEditing(null);
+          setPrefillName("");
+          onAddOpenChange?.(false);
+        }}
+      />
+
+      <Modal
+        open={!!archiving}
+        tone="warning"
+        title={`Archive “${archiving?.name ?? ""}”?`}
+        description="It can’t be added to new orders. Past orders and its stock history stay readable."
+        onClose={() => {
+          setArchiving(null);
+          setArchiveError(null);
+        }}
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setArchiving(null)} disabled={archiveMutation.isPending}>
+              Cancel
+            </button>
+            <button type="button" className="btn btn-primary" onClick={confirmArchive} disabled={archiveMutation.isPending} aria-busy={archiveMutation.isPending}>
+              {archiveMutation.isPending && <span className="spinner" />}
+              Archive product
+            </button>
+          </>
+        }
+      >
+        {archiveError && (
+          <div className="alert a-danger" role="alert">
+            {archiveError}
+          </div>
+        )}
+      </Modal>
+    </div>
+  );
+}
+
+function SummaryCard({ label, value, tone }: { label: string; value: number | undefined; tone?: "low" | "out" }) {
+  const color = tone === "low" ? "var(--warning)" : tone === "out" ? "var(--danger)" : undefined;
+  return (
+    <div className="card metric" style={{ padding: "14px 16px" }}>
+      <span className="metric-l" style={{ color }}>
+        {tone === "low" && <Icon name="alert" size="sm" />}
+        {tone === "out" && <Icon name="close" size="sm" />}
+        {label}
+      </span>
+      <span className="num" style={{ font: "600 22px/30px var(--font)" }}>
+        {value ?? "—"}
+      </span>
     </div>
   );
 }

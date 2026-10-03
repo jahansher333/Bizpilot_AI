@@ -13,15 +13,13 @@ test.describe('Catalog & Inventory Workflows (HARD-002)', () => {
     await expect(page.locator('h1, h2, table, div')).toContainText(/Catalog|Products|Kagzi Badam/i);
 
     // Click Add Product button if present
-    const addBtn = page.locator('button:has-text("Add Product"), button:has-text("New Product")');
+    const addBtn = page.getByRole('button', { name: 'Add product' });
     if (await addBtn.isVisible()) {
       await addBtn.click();
-      await page.fill('input[name="name"], input[placeholder*="Name" i]', 'Peshawari Akhrot');
-      await page.fill('input[name="code"], input[placeholder*="Code" i], input[placeholder*="SKU" i]', 'WALNUT-01');
-      const submitBtn = page.locator('button[type="submit"]:has-text("Save"), button[type="submit"]:has-text("Create")');
-      if (await submitBtn.isVisible()) {
-        await submitBtn.click();
-      }
+      await page.getByLabel('Product name').fill('Peshawari Akhrot');
+      await page.getByLabel('Product code').fill('WALNUT-01');
+      await page.getByLabel('Selling price').fill('1200');
+      await page.getByRole('button', { name: 'Create product' }).click();
     }
   });
 

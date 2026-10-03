@@ -59,7 +59,7 @@ export function useRecordOpeningStock(orgId: string, token?: string) {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balances(orgId) });
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balance(orgId, variables.product_id) });
-      queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.movements(orgId) });
+      queryClient.invalidateQueries({ queryKey: [...INVENTORY_KEYS.all, "movements", orgId] });
     },
   });
 }
@@ -73,7 +73,7 @@ export function useRecordAdjustment(orgId: string, token?: string) {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balances(orgId) });
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balance(orgId, variables.input.product_id) });
-      queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.movements(orgId) });
+      queryClient.invalidateQueries({ queryKey: [...INVENTORY_KEYS.all, "movements", orgId] });
     },
   });
 }
@@ -87,7 +87,7 @@ export function useRecordCorrection(orgId: string, token?: string) {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balances(orgId) });
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balance(orgId, variables.input.product_id) });
-      queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.movements(orgId) });
+      queryClient.invalidateQueries({ queryKey: [...INVENTORY_KEYS.all, "movements", orgId] });
     },
   });
 }
@@ -101,7 +101,7 @@ export function useRecordVoidReversal(orgId: string, token?: string) {
     onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balances(orgId) });
       queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.balance(orgId, variables.input.product_id) });
-      queryClient.invalidateQueries({ queryKey: INVENTORY_KEYS.movements(orgId) });
+      queryClient.invalidateQueries({ queryKey: [...INVENTORY_KEYS.all, "movements", orgId] });
     },
   });
 }

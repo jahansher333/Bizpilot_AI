@@ -105,7 +105,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
     token
   );
   const { data: balances } = useQuery({
-    queryKey: ["inventory", orgId, "balances-total"],
+    queryKey: ["inventory", "balances", orgId, "total"],
     queryFn: () => fetchBalances(orgId, 1, 0, token),
     enabled: !!orgId,
   });

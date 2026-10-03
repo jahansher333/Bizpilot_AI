@@ -134,6 +134,7 @@ export function useUpdateProduct(organizationId: string, token?: string) {
       queryClient.invalidateQueries({
         queryKey: ["catalog", organizationId, "products"],
       });
+      queryClient.invalidateQueries({ queryKey: ["catalog", organizationId, "product"] });
     },
   });
 }
@@ -146,6 +147,7 @@ export function useArchiveProduct(organizationId: string, token?: string) {
       queryClient.invalidateQueries({
         queryKey: ["catalog", organizationId, "products"],
       });
+      queryClient.invalidateQueries({ queryKey: ["catalog", organizationId, "product"] });
     },
   });
 }

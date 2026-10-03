@@ -3,11 +3,12 @@
 import React, { useMemo, useState } from "react";
 import Link from "next/link";
 import { useProducts } from "@/hooks/use-catalog";
-import { useInventoryBalances } from "@/hooks/use-inventory";
-import { Product } from "@/lib/schemas/catalog";
-import { OpeningStockModal } from "@/components/inventory/opening-stock-modal";
-import { AdjustmentModal } from "@/components/inventory/adjustment-modal";
-import { MovementHistoryModal } from "@/components/inventory/movement-history-modal";
+import { useInventoryBalances, useInventoryMovements } from "@/hooks/use-inventory";
+import { LOW_STOCK_THRESHOLD, STOCK_LABEL, StockStatus, productThumb, stockStatus } from "@/lib/stock";
+import { InventoryMovement } from "@/lib/schemas/inventory";
+import { Icon } from "@/components/ui/icon";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
+import { StockBadge, movementLabel } from "@/components/inventory/stock-detail";
 
 interface InventoryViewProps {
   orgId: string;
@@ -15,380 +16,234 @@ interface InventoryViewProps {
   token?: string;
 }
 
-export function InventoryView({ orgId, userRole = "owner", token }: InventoryViewProps) {
-  const [searchTerm, setSearchTerm] = useState("");
-  const [statusFilter, setStatusFilter] = useState<"all" | "in_stock" | "low_stock" | "out_of_stock" | "uninitialized">("all");
-  const [openingModalOpen, setOpeningModalOpen] = useState(false);
-  const [selectedProductForOpening, setSelectedProductForOpening] = useState<string | undefined>();
+type Filter = "all" | "healthy" | "low" | "out";
+const FILTERS: { key: Filter; label: string }[] = [
+  { key: "all", label: "All" },
+  { key: "healthy", label: "In stock" },
+  { key: "low", label: "Low stock" },
+  { key: "out", label: "Out of stock" },
+];
 
-  const [adjustModalOpen, setAdjustModalOpen] = useState(false);
-  const [adjustMode, setAdjustMode] = useState<"adjustment" | "correction">("adjustment");
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+function formatWhen(iso: string) {
+  return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Karachi", day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }).format(new Date(iso));
+}
 
-  const [historyModalOpen, setHistoryModalOpen] = useState(false);
-  const [selectedProductForHistory, setSelectedProductForHistory] = useState<Product | null>(null);
+/** Design canvas "11 · Inventory". */
+export function InventoryView({ orgId, userRole = "staff", token }: InventoryViewProps) {
+  const canMutate = userRole === "owner" || userRole === "manager";
+  const [filter, setFilter] = useState<Filter>("all");
+  const [query, setQuery] = useState("");
 
-  const { data: productsData, isLoading: productsLoading } = useProducts(
-    orgId,
-    { status: "active", limit: 100 },
-    token
-  );
-  const { data: balancesData, isLoading: balancesLoading } = useInventoryBalances(orgId, 100, 0, token);
+  const products = useProducts(orgId, { status: "active", limit: 100 }, token);
+  const balances = useInventoryBalances(orgId, 100, 0, token);
+  const movements = useInventoryMovements(orgId, { limit: 100 }, token);
 
-  const normalizedRole = userRole.toLowerCase().trim();
-  const canMutate = normalizedRole === "owner" || normalizedRole === "manager";
-
-  // Build map of product_id -> balance
-  const balanceMap = useMemo(() => {
-    const map = new Map<string, { onHand: number; version: number }>();
-    if (balancesData?.items) {
-      for (const b of balancesData.items) {
-        map.set(b.product_id, { onHand: b.on_hand_quantity, version: b.version });
-      }
+  const onHand = useMemo(() => new Map((balances.data?.items ?? []).map((b) => [b.product_id, b.on_hand_quantity])), [balances.data]);
+  const lastMovement = useMemo(() => {
+    const map = new Map<string, InventoryMovement>();
+    for (const m of movements.data?.items ?? []) {
+      const prev = map.get(m.product_id);
+      if (!prev || prev.created_at < m.created_at) map.set(m.product_id, m);
     }
     return map;
-  }, [balancesData]);
+  }, [movements.data]);
 
-  // Operational metrics
-  const stockMetrics = useMemo(() => {
-    let inStockCount = 0;
-    let lowStockCount = 0;
-    let outOfStockCount = 0;
-    let uninitializedCount = 0;
-
-    if (productsData?.items) {
-      for (const p of productsData.items) {
-        const bal = balanceMap.get(p.id);
-        if (!bal) {
-          uninitializedCount++;
-        } else if (bal.onHand <= 0) {
-          outOfStockCount++;
-        } else if (bal.onHand <= 10) {
-          lowStockCount++;
-        } else {
-          inStockCount++;
-        }
-      }
-    }
-
-    return { inStockCount, lowStockCount, outOfStockCount, uninitializedCount };
-  }, [productsData, balanceMap]);
-
-  // Filter products by search term and status
-  const filteredProducts = useMemo(() => {
-    if (!productsData?.items) return [];
-    let list = productsData.items;
-
-    if (searchTerm.trim()) {
-      const term = searchTerm.toLowerCase();
-      list = list.filter(
-        (p) => p.name.toLowerCase().includes(term) || p.code.toLowerCase().includes(term)
-      );
-    }
-
-    if (statusFilter !== "all") {
-      list = list.filter((p) => {
-        const bal = balanceMap.get(p.id);
-        if (statusFilter === "uninitialized") return !bal;
-        if (!bal) return false;
-        if (statusFilter === "out_of_stock") return bal.onHand <= 0;
-        if (statusFilter === "low_stock") return bal.onHand > 0 && bal.onHand <= 10;
-        if (statusFilter === "in_stock") return bal.onHand > 10;
-        return true;
-      });
-    }
-
-    return list;
-  }, [productsData, searchTerm, statusFilter, balanceMap]);
-
-  const isLoading = productsLoading || balancesLoading;
-
-  const handleOpenOpeningModal = (productId?: string) => {
-    setSelectedProductForOpening(productId);
-    setOpeningModalOpen(true);
+  const rows = (products.data?.items ?? []).map((p) => {
+    const qty = onHand.get(p.id);
+    return { product: p, qty, status: stockStatus(qty) as StockStatus };
+  });
+  const counts = {
+    healthy: rows.filter((r) => r.status === "healthy").length,
+    low: rows.filter((r) => r.status === "low").length,
+    out: rows.filter((r) => r.status === "out").length,
   };
-
-  const handleOpenAdjustModal = (product: Product, mode: "adjustment" | "correction") => {
-    setSelectedProduct(product);
-    setAdjustMode(mode);
-    setAdjustModalOpen(true);
-  };
-
-  const handleOpenHistoryModal = (product: Product) => {
-    setSelectedProductForHistory(product);
-    setHistoryModalOpen(true);
-  };
+  const q = query.trim().toLowerCase();
+  const visible = rows.filter((r) => (filter === "all" || r.status === filter) && (!q || `${r.product.name} ${r.product.code}`.toLowerCase().includes(q)));
+  const isLoading = products.isLoading || balances.isLoading;
+  const error = products.error || balances.error;
+  const filterLabel = FILTERS.find((f) => f.key === filter)?.label ?? "All";
 
   return (
-    <div className="space-y-6 p-4 sm:p-6 lg:p-8 bg-surface min-h-screen">
-      {/* Top Banner & Header (Stitch Inventory Header) */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <div className="flex items-center space-x-2">
-            <span className="font-label-caps text-[11px] uppercase tracking-wider text-primary font-semibold">
-              Warehousing & Logistics
-            </span>
-            <span className="text-outline">•</span>
-            <span className="font-mono text-xs text-outline">Real-Time Balances</span>
-          </div>
-          <h1 className="mt-1 font-display-lg text-2xl sm:text-3xl font-bold tracking-tight text-on-surface">
-            Inventory Management
-          </h1>
-          <p className="mt-1 font-body-md text-sm text-on-surface-variant">
-            Track real-time stock balances, manage adjustments, and audit stock movements.
-          </p>
+    <div className="main page-in">
+      <div className="ph">
+        <div className="ph-t">
+          <h1 className="t-h1">Inventory</h1>
+          <p className="t-body secondary">Monitor and manage your current stock.</p>
         </div>
-
-        <div className="flex flex-wrap items-center gap-2.5">
-          <Link
-            href={`/workspace/${orgId}/catalog`}
-            className="inline-flex items-center rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3.5 py-2 text-xs font-semibold text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
-          >
-            Manage Catalog
+        <div className="ph-a">
+          <span className="fresh">
+            <span className="live" />
+            Stock updates with every completed order
+          </span>
+          <Link className="btn btn-secondary btn-sm" href={`/workspace/${orgId}/catalog`}>
+            Products
           </Link>
-          {canMutate && (
-            <button
-              onClick={() => handleOpenOpeningModal()}
-              disabled={!productsData?.items?.length}
-              className="inline-flex items-center rounded-xl bg-primary px-4 py-2 font-body-sm text-xs font-semibold text-on-primary shadow-xs hover:bg-primary-container transition-all active:scale-[0.99] disabled:opacity-50"
-            >
-              Record Opening Stock
-            </button>
-          )}
         </div>
       </div>
 
-      {/* Operational Stock Alert Banner */}
-      {(stockMetrics.lowStockCount > 0 || stockMetrics.outOfStockCount > 0) && (
-        <div className="flex items-center justify-between rounded-2xl border border-amber-300/80 bg-amber-50/80 p-4 shadow-xs">
-          <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-800 font-bold text-sm shadow-xs">
-              ⚠️
-            </span>
-            <div>
-              <p className="text-sm font-semibold text-amber-950">Stock Availability Attention Required</p>
-              <p className="text-xs text-amber-800">
-                {stockMetrics.outOfStockCount > 0 && `${stockMetrics.outOfStockCount} product(s) out of stock. `}
-                {stockMetrics.lowStockCount > 0 && `${stockMetrics.lowStockCount} product(s) below reorder threshold (≤10).`}
-              </p>
-            </div>
-          </div>
-          <button
-            type="button"
-            onClick={() => setStatusFilter(stockMetrics.outOfStockCount > 0 ? "out_of_stock" : "low_stock")}
-            className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 font-label-md text-xs font-semibold text-amber-900 shadow-xs hover:bg-amber-50 transition-colors"
-          >
-            Filter Affected
-          </button>
+      <section style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 12 }} aria-label="Stock summary">
+        <SummaryButton tone="healthy" count={counts.healthy} caption={`Above ${LOW_STOCK_THRESHOLD} on hand`} pressed={filter === "healthy"} onClick={() => setFilter(filter === "healthy" ? "all" : "healthy")} />
+        <SummaryButton tone="low" count={counts.low} caption={`${LOW_STOCK_THRESHOLD} or fewer on hand`} pressed={filter === "low"} onClick={() => setFilter(filter === "low" ? "all" : "low")} />
+        <SummaryButton tone="out" count={counts.out} caption="Can’t be added to orders" pressed={filter === "out"} onClick={() => setFilter(filter === "out" ? "all" : "out")} />
+      </section>
+
+      <div className="toolbar">
+        <div className="seg" role="group" aria-label="Stock filter">
+          {FILTERS.map((f) => (
+            <button key={f.key} type="button" aria-pressed={filter === f.key} onClick={() => setFilter(f.key)}>
+              {f.label}
+            </button>
+          ))}
+        </div>
+        <div className="ig" style={{ width: 300, maxWidth: "100%", height: 36 }}>
+          <span className="pre plain">
+            <Icon name="search" />
+          </span>
+          <input placeholder="Search product or code" aria-label="Search inventory" value={query} onChange={(e) => setQuery(e.target.value)} />
+        </div>
+      </div>
+
+      {error && <ErrorState title="Couldn’t load inventory" message="Nothing was lost — check your connection, then try again." onRetry={() => void (products.refetch(), balances.refetch())} />}
+
+      {isLoading && (
+        <div className="tbl-wrap" aria-busy="true" aria-label="Loading inventory" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <Skeleton key={i} height={14} />
+          ))}
         </div>
       )}
 
-      {/* Search & Filter Bar (Stitch Precision Control Bar) */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <input
-            type="text"
-            placeholder="Search by product name or code..."
-            value={searchTerm}
-            onChange={(e) => setSearchTerm(e.target.value)}
-            className="block w-full rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
+      {!isLoading && products.data && rows.length === 0 && (
+        <div className="card">
+          <EmptyState
+            icon="inventory"
+            title="No products yet"
+            description="Add products first, then record how many you have on hand."
+            action={
+              canMutate ? (
+                <Link className="btn btn-primary" href={`/workspace/${orgId}/catalog`}>
+                  Add products
+                </Link>
+              ) : undefined
+            }
           />
         </div>
+      )}
 
-        {/* Status Filter Chips */}
-        <div className="flex flex-wrap gap-1.5">
-          <button
-            type="button"
-            onClick={() => setStatusFilter("all")}
-            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
-              statusFilter === "all"
-                ? "bg-on-surface text-surface shadow-xs"
-                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
-            }`}
-          >
-            All ({productsData?.items?.length ?? 0})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter("in_stock")}
-            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
-              statusFilter === "in_stock"
-                ? "bg-tertiary text-on-tertiary shadow-xs"
-                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
-            }`}
-          >
-            In Stock ({stockMetrics.inStockCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter("low_stock")}
-            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
-              statusFilter === "low_stock"
-                ? "bg-amber-600 text-white shadow-xs"
-                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
-            }`}
-          >
-            Low Stock ({stockMetrics.lowStockCount})
-          </button>
-          <button
-            type="button"
-            onClick={() => setStatusFilter("out_of_stock")}
-            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
-              statusFilter === "out_of_stock"
-                ? "bg-error text-on-error shadow-xs"
-                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
-            }`}
-          >
-            Out of Stock ({stockMetrics.outOfStockCount})
-          </button>
+      {!isLoading && rows.length > 0 && visible.length === 0 && (
+        <div className="card">
+          <EmptyState icon="search" title="Nothing in this view" description={q ? "No products match your search." : "No products have this stock status right now."} />
         </div>
-      </div>
+      )}
 
-      {/* Table Content (Stitch Enterprise Ledger Table) */}
-      <div className="overflow-hidden rounded-2xl border border-surface-container-high/80 bg-surface-container-lowest shadow-xs">
-        {isLoading ? (
-          <div className="py-12 text-center text-sm text-outline">Loading inventory records...</div>
-        ) : filteredProducts.length === 0 ? (
-          <div className="py-12 text-center">
-            <p className="text-sm text-outline">
-              {productsData?.items?.length === 0
-                ? "No active products found in catalog. Create products first."
-                : "No products match your search query."}
-            </p>
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-surface-container-high text-sm">
-              <thead className="bg-surface-container-low/40">
-                <tr>
-                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Product</th>
-                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Base Unit</th>
-                  <th className="px-4 py-3 text-right font-label-caps uppercase text-outline text-[11px]">On-Hand Stock</th>
-                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Status</th>
-                  <th className="px-4 py-3 text-right font-label-caps uppercase text-outline text-[11px]">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-surface-container-low bg-surface-container-lowest">
-                {filteredProducts.map((p) => {
-                  const balInfo = balanceMap.get(p.id);
-                  const isInitialized = balInfo !== undefined;
-                  const onHand = isInitialized ? balInfo.onHand : 0;
-
-                  return (
-                    <tr key={p.id} className="hover:bg-surface-container-low/50 transition-colors font-body-sm">
-                      <td className="px-4 py-3">
-                        <div className="font-semibold text-on-surface">{p.name}</div>
-                        <div className="font-mono text-xs text-primary font-data-cell">{p.code}</div>
-                      </td>
-                      <td className="px-4 py-3 text-on-surface-variant capitalize">{p.base_unit}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-on-surface font-mono">
-                        {isInitialized ? onHand : "—"}
-                      </td>
-                      <td className="px-4 py-3">
-                        {!isInitialized ? (
-                          <span className="inline-flex rounded-full bg-surface-container px-2.5 py-0.5 font-data-badge text-xs font-medium text-on-surface-variant border border-outline-variant/40">
-                            Uninitialized
+      {visible.length > 0 && (
+        <div className="tbl-wrap fade-in" style={{ maxHeight: 640, overflow: "auto" }}>
+          <table className="tbl">
+            <caption className="sr-only">Inventory, filtered to {filterLabel}</caption>
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Code</th>
+                <th className="r">Available</th>
+                <th>Stock status</th>
+                <th>Last movement</th>
+                <th className="r">
+                  <span className="sr-only">Actions</span>
+                </th>
+              </tr>
+            </thead>
+            <tbody>
+              {visible.map(({ product, qty, status }) => {
+                const mv = lastMovement.get(product.id);
+                const detail = `/workspace/${orgId}/inventory/${product.id}`;
+                return (
+                  <tr key={product.id}>
+                    <td>
+                      <div className="cell-main">
+                        <span className="thumb">{productThumb(product.code, product.name)}</span>
+                        <Link className="t" href={detail}>
+                          {product.name}
+                        </Link>
+                      </div>
+                    </td>
+                    <td className="mono muted">{product.code}</td>
+                    <td className="r">
+                      {qty === undefined ? (
+                        <span className="muted">—</span>
+                      ) : (
+                        <>
+                          <span className="num strong" style={{ fontSize: 14 }}>
+                            {qty}
+                          </span>{" "}
+                          <span className="muted t-body-sm">{product.base_unit}</span>
+                        </>
+                      )}
+                    </td>
+                    <td>
+                      <StockBadge status={status} />
+                    </td>
+                    <td>
+                      {mv ? (
+                        <div style={{ display: "flex", flexDirection: "column" }}>
+                          <span className="t-body-sm">
+                            {movementLabel(mv.movement_type)}{" "}
+                            <span className="num" style={{ color: mv.quantity_delta > 0 ? "var(--success)" : "var(--text-secondary)", fontWeight: 500 }}>
+                              {mv.quantity_delta > 0 ? `+${mv.quantity_delta}` : `−${Math.abs(mv.quantity_delta)}`}
+                            </span>
                           </span>
-                        ) : onHand <= 0 ? (
-                          <span className="inline-flex rounded-full bg-error-container px-2.5 py-0.5 font-data-badge text-xs font-semibold text-on-error-container border border-error/20">
-                            Out of Stock
-                          </span>
-                        ) : onHand <= 10 ? (
-                          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 font-data-badge text-xs font-semibold text-amber-800 border border-amber-200">
-                            Low Stock
-                          </span>
-                        ) : (
-                          <span className="inline-flex rounded-full bg-tertiary-fixed px-2.5 py-0.5 font-data-badge text-xs font-semibold text-on-tertiary-fixed border border-tertiary-fixed-dim">
-                            In Stock
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-right">
-                        <div className="flex justify-end gap-2">
-                          <button
-                            onClick={() => handleOpenHistoryModal(p)}
-                            className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-2.5 py-1 text-xs font-semibold text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
-                          >
-                            History
-                          </button>
-
-                          {canMutate && (
-                            <>
-                              {!isInitialized ? (
-                                <button
-                                  onClick={() => handleOpenOpeningModal(p.id)}
-                                  className="rounded-xl bg-primary-fixed px-2.5 py-1 text-xs font-semibold text-primary border border-primary-fixed-dim hover:bg-primary-fixed-dim transition-colors"
-                                >
-                                  Opening Stock
-                                </button>
-                              ) : (
-                                <>
-                                  <button
-                                    onClick={() => handleOpenAdjustModal(p, "adjustment")}
-                                    className="rounded-xl bg-primary-fixed px-2.5 py-1 text-xs font-semibold text-primary border border-primary-fixed-dim hover:bg-primary-fixed-dim transition-colors"
-                                  >
-                                    Adjust Stock
-                                  </button>
-                                  <button
-                                    onClick={() => handleOpenAdjustModal(p, "correction")}
-                                    className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-2.5 py-1 text-xs font-semibold text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
-                                  >
-                                    Correct Count
-                                  </button>
-                                </>
-                              )}
-                            </>
-                          )}
+                          <span className="t-caption">{formatWhen(mv.created_at)}</span>
                         </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* Modals */}
-      {productsData?.items && (
-        <OpeningStockModal
-          isOpen={openingModalOpen}
-          onClose={() => setOpeningModalOpen(false)}
-          orgId={orgId}
-          products={productsData.items}
-          token={token}
-          preselectedProductId={selectedProductForOpening}
-        />
+                      ) : (
+                        <span className="t-caption">—</span>
+                      )}
+                    </td>
+                    <td className="r">
+                      <span className="row-actions">
+                        {canMutate && (
+                          <Link className="btn btn-secondary btn-sm" href={`${detail}?action=${qty === undefined ? "opening" : "adjust"}`} aria-label={`${qty === undefined ? "Set opening stock for" : "Adjust stock for"} ${product.name}`}>
+                            {qty === undefined ? "Set stock" : "Adjust"}
+                          </Link>
+                        )}
+                        <Link className="btn btn-ghost btn-sm" href={detail} aria-label={`Stock history for ${product.name}`}>
+                          History
+                        </Link>
+                      </span>
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
       )}
-
-      {selectedProduct && (
-        <AdjustmentModal
-          isOpen={adjustModalOpen}
-          onClose={() => {
-            setAdjustModalOpen(false);
-            setSelectedProduct(null);
-          }}
-          orgId={orgId}
-          product={selectedProduct}
-          currentOnHand={balanceMap.get(selectedProduct.id)?.onHand ?? 0}
-          mode={adjustMode}
-          token={token}
-        />
-      )}
-
-      {selectedProductForHistory && (
-        <MovementHistoryModal
-          isOpen={historyModalOpen}
-          onClose={() => {
-            setHistoryModalOpen(false);
-            setSelectedProductForHistory(null);
-          }}
-          orgId={orgId}
-          product={selectedProductForHistory}
-          token={token}
-        />
+      {products.data && products.data.total > products.data.items.length && (
+        <p className="t-caption">Showing the first {products.data.items.length} of {products.data.total} active products.</p>
       )}
     </div>
+  );
+}
+
+function SummaryButton({ tone, count, caption, pressed, onClick }: { tone: "healthy" | "low" | "out"; count: number; caption: string; pressed: boolean; onClick: () => void }) {
+  const color = tone === "low" ? "var(--warning)" : tone === "out" ? "var(--danger)" : undefined;
+  const border = tone === "low" ? "var(--warning-border)" : tone === "out" ? "var(--danger-border)" : undefined;
+  return (
+    <button
+      type="button"
+      className="card metric"
+      aria-pressed={pressed}
+      onClick={onClick}
+      style={{ textAlign: "left", cursor: "pointer", font: "inherit", color: "inherit", borderColor: border, boxShadow: pressed ? "var(--focus)" : undefined }}
+    >
+      <span className="metric-l" style={{ color }}>
+        {tone === "healthy" && <Icon name="check" size="sm" style={{ color: "var(--success)" }} />}
+        {tone === "low" && <Icon name="alert" size="sm" />}
+        {tone === "out" && <Icon name="close" size="sm" />}
+        {STOCK_LABEL[tone]}
+      </span>
+      <span className="num" style={{ font: "600 26px/34px var(--font)" }}>
+        {count}
+      </span>
+      <span className="metric-c">{caption}</span>
+    </button>
   );
 }
