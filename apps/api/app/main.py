@@ -4,6 +4,7 @@ from collections.abc import AsyncIterator, Iterable
 from contextlib import asynccontextmanager
 
 from fastapi import APIRouter, FastAPI
+from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.router import build_api_router
@@ -65,6 +66,14 @@ def create_app(
     app.state.started = False
 
     # Middleware
+    # Bearer tokens travel in the Authorization header, so CORS needs no cookie credentials.
+    app.add_middleware(
+        CORSMiddleware,
+        allow_origins=runtime_settings.cors_origins,
+        allow_credentials=False,
+        allow_methods=["*"],
+        allow_headers=["*"],
+    )
     app.add_middleware(CorrelationMiddleware)
 
     # Exception handlers

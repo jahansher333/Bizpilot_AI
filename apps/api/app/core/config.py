@@ -97,6 +97,9 @@ class Settings(BaseSettings):
 
     environment: EnvironmentMode
     debug: bool = False
+    cors_origins: list[str] = Field(
+        default_factory=lambda: ["http://localhost:3000", "http://127.0.0.1:3000"]
+    )
     database: DatabaseSettings
     auth: AuthenticationSettings
     ai: AISettings = Field(default_factory=AISettings)
@@ -115,7 +118,8 @@ class Settings(BaseSettings):
 
         def checked_environment() -> dict[str, Any]:
             allowed = {
-                "bizpilot_environment", "bizpilot_debug", "bizpilot_database__url",
+                "bizpilot_environment", "bizpilot_debug", "bizpilot_cors_origins",
+                "bizpilot_database__url",
                 "bizpilot_auth__signing_secret", "bizpilot_auth__access_token_minutes",
                 "bizpilot_auth__password_min_length", "bizpilot_auth__password_max_length",
                 "bizpilot_auth__argon2_time_cost", "bizpilot_auth__argon2_memory_cost_kib",
@@ -139,10 +143,20 @@ class Settings(BaseSettings):
 
     @model_validator(mode="after")
     def validate_production(self) -> "Settings":
+        if any(origin.strip() == "*" for origin in self.cors_origins):
+            raise ValueError("wildcard CORS origin is not allowed")
         if self.environment is not EnvironmentMode.PRODUCTION:
             return self
         if self.debug:
             raise ValueError("debug mode is not allowed in production")
+        if not self.cors_origins:
+            raise ValueError("production requires at least one CORS origin")
+        for origin in self.cors_origins:
+            parsed_origin = urlsplit(origin)
+            if parsed_origin.scheme != "https" or not parsed_origin.hostname:
+                raise ValueError("production CORS origins must be absolute https origins")
+            if parsed_origin.hostname in {"localhost", "127.0.0.1"}:
+                raise ValueError("production CORS origins must not be loopback hosts")
         query = {
             key.lower(): values
             for key, values in parse_qs(urlsplit(self.database.url.get_secret_value()).query).items()

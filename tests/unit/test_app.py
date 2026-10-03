@@ -71,6 +71,24 @@ def test_router_registry_has_no_business_routes(test_app) -> None:
     assert not any(path.startswith("/api/products") for path in paths)
 
 
+def test_cors_allows_only_configured_origins(test_settings) -> None:
+    from app.main import create_app
+
+    settings = test_settings.model_copy(update={"cors_origins": ["http://allowed.test"]})
+    with TestClient(create_app(settings)) as cors_client:
+        allowed = cors_client.options(
+            "/api/auth/login",
+            headers={"Origin": "http://allowed.test", "Access-Control-Request-Method": "POST"},
+        )
+        blocked = cors_client.options(
+            "/api/auth/login",
+            headers={"Origin": "http://evil.test", "Access-Control-Request-Method": "POST"},
+        )
+    assert allowed.headers.get("access-control-allow-origin") == "http://allowed.test"
+    assert "access-control-allow-credentials" not in allowed.headers
+    assert "access-control-allow-origin" not in blocked.headers
+
+
 def test_unknown_business_route_is_not_exposed(client) -> None:
     assert client.get("/api/orders").status_code == 404
 

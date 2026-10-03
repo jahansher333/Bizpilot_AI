@@ -29,6 +29,7 @@ def _valid_production_payload() -> dict:
     return {
         "environment": "production",
         "debug": False,
+        "cors_origins": ["https://app.bizpilot.invalid"],
         "database": {
             "url": "postgresql://prod_user_admin:StrongSecretPass987654321@postgres.prod.internal:5432/bizpilot_prod?sslmode=require",
         },

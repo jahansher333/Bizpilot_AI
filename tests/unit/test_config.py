@@ -21,14 +21,17 @@ def clean_environment(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def values(mode: str = "local") -> dict[str, object]:
     url = "postgresql://user:db-secret-password@localhost:5432/bizpilot"
+    cors_origins = ["http://localhost:3000"]
     if mode == "production":
         url = (
             "postgresql://runtime_app:S3cure_Db_Credential_2026_Long"
             "@db.invalid:5432/bizpilot?sslmode=verify-full"
         )
+        cors_origins = ["https://app.bizpilot.invalid"]
     return {
         "environment": mode,
         "debug": False,
+        "cors_origins": cors_origins,
         "database": {"url": url},
         "auth": {"signing_secret": "secure-runtime-signing-secret-over-32-characters"},
         "ai": {"enabled": False},
@@ -108,6 +111,46 @@ def test_ai_disabled_needs_no_live_configuration() -> None:
 def test_production_rejects_debug() -> None:
     with pytest.raises(ValidationError):
         Settings(**(values("production") | {"debug": True}))
+
+
+def test_cors_origins_default_to_local_frontend() -> None:
+    config = values()
+    del config["cors_origins"]
+    assert Settings(**config).cors_origins == ["http://localhost:3000", "http://127.0.0.1:3000"]
+
+
+@pytest.mark.parametrize("mode", ["local", "production"])
+def test_cors_rejects_wildcard_origin(mode: str) -> None:
+    with pytest.raises(ValidationError, match="wildcard CORS origin"):
+        Settings(**(values(mode) | {"cors_origins": ["*"]}))
+
+
+@pytest.mark.parametrize(
+    "origins",
+    [
+        [],
+        ["http://app.bizpilot.invalid"],
+        ["https://localhost:3000"],
+        ["app.bizpilot.invalid"],
+    ],
+)
+def test_production_rejects_unsafe_cors_origins(origins: list[str]) -> None:
+    with pytest.raises(ValidationError):
+        Settings(**(values("production") | {"cors_origins": origins}))
+
+
+def test_production_requires_explicit_cors_origins() -> None:
+    config = values("production")
+    del config["cors_origins"]
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_cors_origins_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIZPILOT_CORS_ORIGINS", '["https://app.bizpilot.invalid"]')
+    config = values("production")
+    del config["cors_origins"]
+    assert Settings(**config).cors_origins == ["https://app.bizpilot.invalid"]
 
 
 def test_production_rejects_insecure_transport() -> None:
