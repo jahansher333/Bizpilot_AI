@@ -1,8 +1,10 @@
 import {
   CreateOrganizationInput,
   InviteMemberInput,
+  MemberRole,
   Organization,
   OrganizationMember,
+  PendingInvitation,
 } from "@/lib/schemas/organizations";
 import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
@@ -75,7 +77,7 @@ export async function getOrganization(
 
 export async function listMembers(
   orgId: string,
-  token: string
+  token?: string
 ): Promise<OrganizationMember[]> {
   return request<OrganizationMember[]>(
     `/api/organizations/${orgId}/members`,
@@ -87,7 +89,7 @@ export async function listMembers(
 export async function inviteMember(
   orgId: string,
   payload: InviteMemberInput,
-  token: string
+  token?: string
 ): Promise<OrganizationMember> {
   return request<OrganizationMember>(
     `/api/organizations/${orgId}/members`,
@@ -95,6 +97,49 @@ export async function inviteMember(
       method: "POST",
       body: JSON.stringify(payload),
     },
+    token
+  );
+}
+
+export async function updateMemberRole(
+  orgId: string,
+  memberId: string,
+  role: MemberRole,
+  token?: string
+): Promise<OrganizationMember> {
+  return request<OrganizationMember>(
+    `/api/organizations/${orgId}/members/${memberId}`,
+    {
+      method: "PATCH",
+      body: JSON.stringify({ role }),
+    },
+    token
+  );
+}
+
+export async function revokeMember(
+  orgId: string,
+  memberId: string,
+  token?: string
+): Promise<OrganizationMember> {
+  return request<OrganizationMember>(
+    `/api/organizations/${orgId}/members/${memberId}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
+export async function listMyInvitations(token?: string): Promise<PendingInvitation[]> {
+  return request<PendingInvitation[]>("/api/organizations/invitations", { method: "GET" }, token);
+}
+
+export async function acceptInvitation(
+  orgId: string,
+  token?: string
+): Promise<OrganizationMember> {
+  return request<OrganizationMember>(
+    `/api/organizations/${orgId}/members/accept`,
+    { method: "POST" },
     token
   );
 }

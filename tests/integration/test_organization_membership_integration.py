@@ -110,7 +110,9 @@ async def test_invite_unregistered_email_returns_404(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert resp.status_code == 404
-    assert "Please have them register first" in resp.json()["error"]["message"]
+    message = resp.json()["error"]["message"]
+    assert "register first" in message
+    assert "nobody_registered@example.com" not in message
 
 
 @pytest.mark.asyncio
@@ -382,3 +384,76 @@ async def test_reinviting_revoked_member_succeeds(
     assert reinv_resp.json()["status"] == "invited"
     assert reinv_resp.json()["role"] == "manager"
     assert reinv_resp.json()["revoked_at"] is None
+
+
+@pytest.mark.asyncio
+async def test_invitee_sees_pending_invitation_and_accepts_it(
+    member_client: AsyncClient,
+) -> None:
+    """Invitee can discover pending invitations without knowing the organization ID (FIX-006)."""
+    _, owner_token = await _create_user(member_client, "owner")
+    invitee_email, invitee_token = await _create_user(member_client, "invitee")
+    org_id = await _create_org(member_client, owner_token, "Invitations Org")
+    await member_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"email": invitee_email, "role": "manager"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+
+    listed = await member_client.get(
+        "/api/organizations/invitations",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert listed.status_code == 200
+    invitations = listed.json()
+    assert len(invitations) == 1
+    assert invitations[0]["organization_id"] == org_id
+    assert invitations[0]["organization_display_name"] == "Invitations Org"
+    assert invitations[0]["role"] == "manager"
+
+    accepted = await member_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert accepted.status_code == 200
+
+    after = await member_client.get(
+        "/api/organizations/invitations",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert after.json() == []
+    orgs = await member_client.get(
+        "/api/organizations",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert org_id in [org["id"] for org in orgs.json()]
+
+
+@pytest.mark.asyncio
+async def test_invitations_list_only_callers_own_invitations(
+    member_client: AsyncClient,
+) -> None:
+    """Pending invitations are never visible to other users, including the inviting owner."""
+    _, owner_token = await _create_user(member_client, "owner")
+    invitee_email, _ = await _create_user(member_client, "invitee")
+    _, outsider_token = await _create_user(member_client, "outsider")
+    org_id = await _create_org(member_client, owner_token, "Private Invite Org")
+    await member_client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"email": invitee_email, "role": "staff"},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+
+    for token in (owner_token, outsider_token):
+        resp = await member_client.get(
+            "/api/organizations/invitations",
+            headers={"Authorization": f"Bearer {token}"},
+        )
+        assert resp.status_code == 200
+        assert resp.json() == []
+
+
+@pytest.mark.asyncio
+async def test_invitations_list_requires_authentication(member_client: AsyncClient) -> None:
+    resp = await member_client.get("/api/organizations/invitations")
+    assert resp.status_code == 401

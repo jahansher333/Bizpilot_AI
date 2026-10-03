@@ -178,6 +178,24 @@ class OrganizationRepository:
         result = await self._session.execute(stmt)
         return len(result.scalars().all())
 
+    async def list_pending_invitations_for_user(
+        self,
+        user_id: uuid.UUID,
+    ) -> Sequence[tuple[OrganizationMember, Organization]]:
+        """List the user's own pending invitations to active organizations."""
+        stmt = (
+            select(OrganizationMember, Organization)
+            .join(Organization, Organization.id == OrganizationMember.organization_id)
+            .where(
+                OrganizationMember.user_id == user_id,
+                OrganizationMember.status == MemberStatus.INVITED.value,
+                Organization.status == OrganizationStatus.ACTIVE.value,
+            )
+            .order_by(OrganizationMember.updated_at.desc())
+        )
+        result = await self._session.execute(stmt)
+        return result.all()
+
     async def get_pending_invitation(
         self,
         organization_id: uuid.UUID,

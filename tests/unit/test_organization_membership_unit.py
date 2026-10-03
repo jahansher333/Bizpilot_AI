@@ -230,7 +230,32 @@ async def test_invite_member_unregistered_user_rejected_404() -> None:
     with pytest.raises(NotFoundException) as exc_info:
         await service.invite_member(org_id, owner, req)
 
-    assert "Please have them register first" in str(exc_info.value.message)
+    assert "register first" in str(exc_info.value.message)
+    assert "nonexistent@example.com" not in str(exc_info.value.message)
+
+
+@pytest.mark.asyncio
+async def test_invite_member_inactive_user_gets_same_message_as_missing() -> None:
+    """Missing and inactive accounts must be indistinguishable to the inviting owner (FIX-006)."""
+    org_id = uuid.uuid4()
+    owner = _make_active_user()
+    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
+    inactive_target = _make_user_entity(uuid.uuid4())
+    inactive_target.status = "disabled"
+
+    messages = []
+    for target in (None, inactive_target):
+        mock_repo = AsyncMock(spec=OrganizationRepository)
+        mock_repo.get_member.return_value = owner_member
+        mock_repo.get_user_by_email.return_value = target
+        service = OrganizationService(session=AsyncMock(), repository=mock_repo)
+        with pytest.raises(NotFoundException) as exc_info:
+            await service.invite_member(
+                org_id, owner, InviteMemberRequest(email="someone@example.com", role=MemberRole.STAFF)
+            )
+        messages.append(exc_info.value.message)
+
+    assert messages[0] == messages[1]
 
 
 @pytest.mark.asyncio

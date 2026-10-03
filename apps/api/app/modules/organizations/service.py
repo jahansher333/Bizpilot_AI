@@ -29,6 +29,7 @@ from app.modules.organizations.schemas import (
     InviteMemberRequest,
     OrganizationMemberResponse,
     OrganizationResponse,
+    PendingInvitationResponse,
     UpdateMemberRoleRequest,
 )
 
@@ -185,12 +186,12 @@ class OrganizationService:
         await self._verify_active_owner(organization_id, current_user)
 
         target_user = await self._repository.get_user_by_email(request.email)
-        if target_user is None:
+        if target_user is None or target_user.status != UserStatus.ACTIVE.value:
+            # One message for missing and inactive accounts; never echo the email or account state.
             raise NotFoundException(
-                f"User with email '{request.email}' not found. Please have them register first."
+                "No active BizPilot account was found for this email. "
+                "Ask them to register first, then send the invitation again."
             )
-        if target_user.status != UserStatus.ACTIVE.value:
-            raise NotFoundException("User account is inactive or disabled")
 
         existing_member = await self._repository.get_member(organization_id, target_user.id)
         if existing_member is not None:
@@ -312,6 +313,26 @@ class OrganizationService:
             email=user.email_normalized,
             display_name=user.display_name,
         )
+
+    async def list_my_invitations(
+        self,
+        current_user: AuthenticatedUser,
+    ) -> list[PendingInvitationResponse]:
+        """List pending invitations addressed to the caller (FIX-006)."""
+        if current_user.status != UserStatus.ACTIVE.value:
+            raise AuthenticationException("User account is inactive or disabled")
+
+        rows = await self._repository.list_pending_invitations_for_user(current_user.id)
+        return [
+            PendingInvitationResponse(
+                membership_id=str(member.id),
+                organization_id=str(org.id),
+                organization_display_name=org.display_name,
+                role=member.role,
+                invited_at=member.updated_at,
+            )
+            for member, org in rows
+        ]
 
     async def accept_invitation(
         self,

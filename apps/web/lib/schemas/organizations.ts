@@ -35,11 +35,28 @@ export const InviteMemberSchema = z.object({
 
 export type InviteMemberInput = z.infer<typeof InviteMemberSchema>;
 
+export type MemberRole = "owner" | "manager" | "staff";
+
+export const MEMBER_ROLES: MemberRole[] = ["owner", "manager", "staff"];
+
 export interface OrganizationMember {
   id: string;
   organization_id: string;
   user_id: string;
-  role: "owner" | "manager" | "staff";
-  status: string;
+  role: MemberRole;
+  status: "active" | "invited" | "revoked" | string;
+  invited_by_user_id?: string | null;
   created_at: string;
+  updated_at?: string;
+  revoked_at?: string | null;
+  email: string;
+  display_name: string;
+}
+
+export interface PendingInvitation {
+  membership_id: string;
+  organization_id: string;
+  organization_display_name: string;
+  role: MemberRole;
+  invited_at: string;
 }

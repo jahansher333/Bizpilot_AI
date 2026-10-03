@@ -4,6 +4,7 @@ import React from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
+import { BizPilotLogo } from "@/components/ui/bizpilot-logo";
 
 interface WorkspaceSidebarProps {
   orgId: string;
@@ -16,6 +17,7 @@ interface NavItem {
   href: string;
   icon: (props: React.SVGProps<SVGSVGElement>) => React.ReactElement;
   ownerManagerOnly?: boolean;
+  ownerOnly?: boolean;
 }
 
 interface NavGroup {
@@ -28,6 +30,7 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
   const { user, activeOrg, activeRole, logout } = useAuth();
 
   const isStaff = activeRole?.toLowerCase() === "staff";
+  const isOwner = activeRole?.toLowerCase() === "owner";
 
   const navigationGroups: NavGroup[] = [
     {
@@ -127,6 +130,16 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
       groupName: "Management",
       items: [
         {
+          name: "Team",
+          href: `/workspace/${orgId}/team`,
+          ownerOnly: true,
+          icon: (props) => (
+            <svg {...props} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18 9v3m0 0v3m0-3h3m-3 0h-3m-2-5a4 4 0 11-8 0 4 4 0 018 0zM3 20a6 6 0 0112 0v1H3v-1z" />
+            </svg>
+          ),
+        },
+        {
           name: "Workspaces",
           href: "/onboarding",
           icon: (props) => (
@@ -141,49 +154,52 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
 
   return (
     <aside
-      className={`flex flex-col border-r border-slate-200 bg-white ${className}`}
+      className={`flex flex-col border-r border-surface-container-high/60 bg-surface-container-low shadow-[0_1px_8px_rgba(0,0,0,0.04)] ${className}`}
       aria-label="Main sidebar navigation"
     >
       {/* Brand Header */}
-      <div className="flex h-16 items-center justify-between border-b border-slate-200 px-5">
+      <div className="p-space-md border-b border-surface-container-high/60">
         <Link
           href={`/workspace/${orgId}`}
-          className="flex items-center gap-2.5"
+          className="flex items-center gap-space-sm mb-space-sm group"
           onClick={onNavigate}
           aria-label="BizPilot workspace home"
         >
-          <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-emerald-700 text-white font-bold text-sm shadow-sm">
-            BP
-          </div>
-          <div>
-            <span className="font-bold text-slate-900 tracking-tight text-base">BizPilot AI</span>
-            <span className="ml-1.5 rounded bg-emerald-50 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-700">
-              P0
+          <BizPilotLogo className="w-8 h-8 rounded-lg shadow-sm" size={32} />
+          <span className="font-headline-sm text-headline-sm tracking-tight text-on-surface font-semibold">
+            BizPilot AI
+          </span>
+          <span className="ml-auto font-data-badge text-data-badge px-1.5 py-0.5 rounded bg-surface-container-highest text-primary font-medium">
+            ERP
+          </span>
+        </Link>
+
+        {/* Workspace Quick Switcher */}
+        <Link
+          href="/onboarding"
+          onClick={onNavigate}
+          className="w-full flex items-center justify-between px-space-sm py-space-xs rounded-lg bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04)] hover:bg-surface-container-high transition-colors text-left"
+        >
+          <div className="flex flex-col min-w-0 pr-space-xs">
+            <span className="font-body-sm text-body-sm font-medium text-on-surface truncate">
+              {activeOrg?.display_name || "Workspace"}
+            </span>
+            <span className="font-label-md text-label-md text-on-surface-variant truncate">
+              {activeOrg?.timezone || "Asia/Karachi"} · PK
             </span>
           </div>
+          <span className="rounded bg-surface-container-high px-1.5 py-0.5 font-data-badge text-[10px] font-semibold capitalize text-primary">
+            {activeRole || "owner"}
+          </span>
         </Link>
       </div>
 
-      {/* Organization Badge Card */}
-      <div className="border-b border-slate-100 bg-slate-50/60 px-5 py-3">
-        <div className="flex items-center justify-between">
-          <p className="truncate text-xs font-semibold text-slate-900">
-            {activeOrg?.display_name || "Workspace"}
-          </p>
-          <span className="rounded bg-emerald-100 px-1.5 py-0.5 text-[10px] font-semibold capitalize text-emerald-800">
-            {activeRole || "owner"}
-          </span>
-        </div>
-        <p className="mt-0.5 text-[11px] text-slate-500">
-          PKR • {activeOrg?.timezone || "Asia/Karachi"}
-        </p>
-      </div>
-
       {/* Navigation Groups */}
-      <nav className="flex-1 space-y-6 overflow-y-auto px-3 py-4" aria-label="Sidebar navigation">
+      <nav className="flex-1 space-y-5 overflow-y-auto px-space-sm py-space-md" aria-label="Sidebar navigation">
         {navigationGroups.map((group) => {
           const visibleItems = group.items.filter((item) => {
             if (item.ownerManagerOnly && isStaff) return false;
+            if (item.ownerOnly && !isOwner) return false;
             return true;
           });
 
@@ -191,10 +207,10 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
 
           return (
             <div key={group.groupName} className="space-y-1">
-              <p className="px-3 text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+              <p className="px-space-sm pt-space-xs pb-space-xxs font-label-caps text-label-caps uppercase text-outline tracking-wider text-[11px]">
                 {group.groupName}
               </p>
-              <ul className="space-y-0.5">
+              <ul className="space-y-1">
                 {visibleItems.map((item) => {
                   const isActive =
                     item.href === `/workspace/${orgId}`
@@ -207,18 +223,31 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
                         href={item.href}
                         onClick={onNavigate}
                         aria-current={isActive ? "page" : undefined}
-                        className={`flex items-center gap-3 rounded-lg px-3 py-2 text-sm font-medium transition-colors ${
+                        className={`flex items-center justify-between px-space-sm py-space-xs rounded-lg text-sm font-medium transition-all ${
                           isActive
-                            ? "bg-emerald-50 font-semibold text-emerald-800 shadow-xs"
-                            : "text-slate-600 hover:bg-slate-100 hover:text-slate-900"
+                            ? "bg-primary-container text-on-primary font-semibold shadow-sm"
+                            : "text-on-surface-variant hover:bg-surface-container-high hover:text-on-surface"
                         }`}
                       >
-                        <item.icon
-                          className={`h-4 w-4 shrink-0 ${
-                            isActive ? "text-emerald-700" : "text-slate-400 group-hover:text-slate-600"
-                          }`}
-                        />
-                        <span>{item.name}</span>
+                        <div className="flex items-center gap-space-sm">
+                          <item.icon
+                            className={`h-4 w-4 shrink-0 ${
+                              isActive ? "text-on-primary" : "text-outline group-hover:text-on-surface"
+                            }`}
+                          />
+                          <span className="font-body-md text-body-md">{item.name}</span>
+                        </div>
+                        {item.name === "BizPilot AI" && (
+                          <span
+                            className={`font-data-badge text-[10px] px-1.5 py-0.5 rounded-full ${
+                              isActive
+                                ? "bg-white/20 text-white"
+                                : "bg-secondary-fixed text-on-secondary-fixed font-semibold"
+                            }`}
+                          >
+                            v2.4
+                          </span>
+                        )}
                       </Link>
                     </li>
                   );
@@ -229,21 +258,31 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
         })}
       </nav>
 
-      {/* User Session Footer */}
-      <div className="border-t border-slate-200 p-4">
-        <div className="flex items-center justify-between">
-          <div className="min-w-0 pr-2">
-            <p className="truncate text-xs font-semibold text-slate-800">
-              {user?.display_name || user?.email || "Authenticated User"}
+      {/* Operational Status & User Session Footer */}
+      <div className="p-space-sm flex flex-col gap-space-xs border-t border-surface-container-high/60 bg-surface-container-low">
+        <div className="flex items-center justify-between px-space-sm py-space-xxs text-label-md font-label-md">
+          <span className="text-on-surface-variant flex items-center gap-1">
+            <span>Enterprise Sync</span>
+          </span>
+          <div className="flex items-center gap-1.5 text-tertiary font-semibold">
+            <span className="w-2 h-2 rounded-full bg-tertiary-fixed-dim inline-block animate-pulse" />
+            <span>Operational</span>
+          </div>
+        </div>
+
+        <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
+          <div className="min-w-0 pr-2 pl-1">
+            <p className="truncate font-body-sm text-body-sm font-semibold text-on-surface">
+              {user?.display_name || user?.email || "Authenticated Operator"}
             </p>
-            <p className="truncate text-[11px] text-slate-500">{user?.email}</p>
+            <p className="truncate font-label-md text-label-md text-on-surface-variant">{user?.email}</p>
           </div>
           <button
             type="button"
             onClick={() => logout()}
             title="Sign out"
             aria-label="Sign out"
-            className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-rose-600"
+            className="rounded-lg p-1.5 text-outline hover:bg-surface-container-high hover:text-error transition-colors"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />

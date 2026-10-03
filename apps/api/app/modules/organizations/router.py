@@ -14,6 +14,7 @@ from app.modules.organizations.schemas import (
     InviteMemberRequest,
     OrganizationMemberResponse,
     OrganizationResponse,
+    PendingInvitationResponse,
     UpdateMemberRoleRequest,
 )
 from app.modules.organizations.service import OrganizationService
@@ -36,6 +37,23 @@ async def create_organization(
     """Create a new organization and assign caller as owner."""
     service = OrganizationService(session)
     return await service.create_organization(current_user, request)
+
+
+# Declared before "/{organization_id}" so the literal path is not parsed as an organization ID.
+@router.get(
+    "/invitations",
+    response_model=list[PendingInvitationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List my pending invitations",
+    description="Lists pending invitations addressed to the authenticated user so they can be accepted.",
+)
+async def list_my_invitations(
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[PendingInvitationResponse]:
+    """List the caller's pending organization invitations."""
+    service = OrganizationService(session)
+    return await service.list_my_invitations(current_user)
 
 
 @router.get(

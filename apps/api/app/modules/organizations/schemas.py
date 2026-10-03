@@ -121,6 +121,18 @@ class UpdateMemberRoleRequest(BaseModel):
     )
 
 
+class PendingInvitationResponse(BaseModel):
+    """A pending invitation addressed to the authenticated user."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    membership_id: str = Field(..., description="Membership unique identifier.")
+    organization_id: str = Field(..., description="Inviting organization identifier.")
+    organization_display_name: str = Field(..., description="Inviting organization display name.")
+    role: str = Field(..., description="Role offered by the invitation.")
+    invited_at: datetime = Field(..., description="Invitation timestamp in UTC.")
+
+
 class OrganizationMemberResponse(BaseModel):
     """Safe response payload for organization membership representation."""
 
