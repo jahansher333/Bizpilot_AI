@@ -199,7 +199,7 @@ describe("UX-005: Payment & Expense Workflow Completion", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/operational receipt tracking:/i)).toBeInTheDocument();
-        expect(screen.getByText(/not bank statement reconciliation/i)).toBeInTheDocument();
+        expect(screen.getByText(/not a reconciliation tool/i)).toBeInTheDocument();
       });
 
       const ordersLink = screen.getByRole("link", { name: /orders directory/i });
@@ -265,7 +265,7 @@ describe("UX-005: Payment & Expense Workflow Completion", () => {
 
       await waitFor(() => {
         expect(screen.getByText(/operational outflow tracking:/i)).toBeInTheDocument();
-        expect(screen.getByText(/distinguishable from double-entry formal accounting/i)).toBeInTheDocument();
+        expect(screen.getByText(/not an accounting ledger/i)).toBeInTheDocument();
       });
 
       const dashboardLink = screen.getByRole("link", { name: /dashboard/i });

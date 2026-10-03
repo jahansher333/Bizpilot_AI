@@ -56,83 +56,110 @@ export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewP
   };
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+    <div className="space-y-6 p-6 max-w-[1600px] mx-auto">
+      {/* Top Executive Header & Primary Actions */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">
+          <h1 className="font-display-lg text-2xl lg:text-3xl font-semibold tracking-tight text-on-surface">
             Customer Directory
           </h1>
-          <p className="text-sm text-slate-500">
-            Manage customer contact records for repeat sales, order association, and balance tracking.
+          <p className="font-body-md text-sm text-on-surface-variant max-w-3xl mt-1">
+            Manage customer names and optional contact details. Orders and payments can be linked to a customer or recorded as walk-in.
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Link
             href={`/workspace/${orgId}/orders`}
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm font-medium text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
           >
-            View Orders
+            <span className="material-symbols-outlined text-[18px] text-outline">shopping_bag</span>
+            <span>View Orders</span>
           </Link>
           {canCreate && (
             <button
               onClick={handleOpenCreate}
-              className="inline-flex items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-body-sm text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container active:scale-[0.99] transition-all"
             >
-              Add Customer
+              <span className="material-symbols-outlined text-[18px]">person_add</span>
+              <span>Add Customer</span>
             </button>
           )}
         </div>
       </div>
 
+      {/* Customer count */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        <div className="bg-surface-container-lowest p-5 rounded-xl shadow-xs border border-surface-container-high/60 flex items-start justify-between">
+          <div className="space-y-1">
+            <span className="font-label-caps text-xs uppercase text-on-surface-variant tracking-wider">
+              Customers (current filter)
+            </span>
+            <div className="font-data-metric text-2xl font-bold text-on-surface">
+              {data ? data.total : "—"}
+            </div>
+          </div>
+          <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+            <span className="material-symbols-outlined text-[20px]">groups</span>
+          </div>
+        </div>
+      </div>
+
       {/* Walk-in notice banner */}
-      <div className="rounded-xl border border-blue-200 bg-blue-50/80 p-3.5 text-xs text-blue-900 flex items-center gap-2.5">
-        <span className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full bg-blue-200 text-blue-800 font-bold text-xs">
-          i
-        </span>
-        <div>
-          <span className="font-semibold">Walk-in alternative:</span> Recording a customer profile is optional. Orders can be entered directly as anonymous walk-in sales.
+      <div className="rounded-xl border border-secondary/20 bg-surface-container-low p-4 text-xs text-on-surface flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[18px]">info</span>
+          </div>
+          <div>
+            <span className="font-semibold text-on-surface">Walk-in alternative:</span>{" "}
+            <span className="text-on-surface-variant">
+              Recording a customer profile is optional. Orders can be entered directly as anonymous walk-in sales.
+            </span>
+          </div>
         </div>
       </div>
 
       {/* Controls: Search & Status Filter */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="bg-surface-container-lowest p-4 rounded-xl shadow-xs border border-surface-container-high/60 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
+          <span className="material-symbols-outlined absolute left-3 top-2.5 text-outline text-[18px]">
+            search
+          </span>
           <input
             type="text"
             placeholder="Search by customer name or phone..."
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 shadow-xs"
+            className="block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest pl-9 pr-3 py-2 font-body-sm text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
           />
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center p-1 rounded-lg bg-surface-container-low border border-surface-container-high/60">
           <button
             onClick={() => setStatusFilter("active")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
               statusFilter === "active"
-                ? "bg-slate-800 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-surface-container-lowest text-primary shadow-xs"
+                : "text-on-surface-variant hover:text-on-surface"
             }`}
           >
             Active
           </button>
           <button
             onClick={() => setStatusFilter("archived")}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
               statusFilter === "archived"
-                ? "bg-slate-800 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-surface-container-lowest text-primary shadow-xs"
+                : "text-on-surface-variant hover:text-on-surface"
             }`}
           >
             Archived
           </button>
           <button
             onClick={() => setStatusFilter(undefined)}
-            className={`rounded-lg px-3 py-1.5 text-xs font-semibold transition-colors ${
+            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
               statusFilter === undefined
-                ? "bg-slate-800 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-surface-container-lowest text-primary shadow-xs"
+                : "text-on-surface-variant hover:text-on-surface"
             }`}
           >
             All
@@ -141,79 +168,117 @@ export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewP
       </div>
 
       {/* Content Table */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+      <div className="overflow-hidden rounded-xl border border-surface-container-high/60 bg-surface-container-lowest shadow-xs">
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-slate-500">Loading customers...</div>
+          <div className="p-8 text-center text-sm text-on-surface-variant">Loading customers...</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-rose-600">Failed to load customer list.</div>
+          <div className="p-8 text-center text-sm text-error">Failed to load customer list.</div>
         ) : !data || data.items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-slate-500">No customers found.</div>
+          <div className="p-8 text-center text-sm text-on-surface-variant">No customers found.</div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50/80">
-                <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Customer</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Contact</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Notes</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">Actions</th>
+            <table className="w-full text-left border-collapse">
+              <thead>
+                <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-xs uppercase h-10 select-none border-b border-surface-container-high/60">
+                  <th className="px-4 py-3 font-semibold">Customer</th>
+                  <th className="px-4 py-3 font-semibold">Contact</th>
+                  <th className="px-4 py-3 font-semibold">Notes</th>
+                  <th className="px-4 py-3 font-semibold">Status</th>
+                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
-                {data.items.map((customer) => (
-                  <tr key={customer.id} className="hover:bg-slate-50/60 transition-colors">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{customer.name}</td>
-                    <td className="px-4 py-3 text-slate-600">
-                      <div>{customer.phone || "—"}</div>
-                      {customer.email && (
-                        <div className="text-xs text-slate-400">{customer.email}</div>
-                      )}
-                    </td>
-                    <td className="px-4 py-3 text-slate-500 max-w-xs truncate">
-                      {customer.notes || "—"}
-                    </td>
-                    <td className="px-4 py-3">
-                      <span
-                        className={`inline-flex rounded-full px-2.5 py-0.5 text-xs font-semibold capitalize border ${
-                          customer.status === "active"
-                            ? "bg-emerald-50 text-emerald-800 border-emerald-200"
-                            : "bg-slate-100 text-slate-600 border-slate-200"
-                        }`}
-                      >
-                        {customer.status}
-                      </span>
-                    </td>
-                    <td className="px-4 py-3 text-right">
-                      <div className="flex justify-end items-center gap-2">
-                        <Link
-                          href={`/workspace/${orgId}/orders?customerId=${customer.id}`}
-                          className="rounded-lg border border-emerald-200 bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 hover:bg-emerald-100"
+              <tbody className="divide-y divide-surface-container-low font-body-md text-sm text-on-surface">
+                {data.items.map((customer) => {
+                  const initials = customer.name
+                    ? customer.name
+                        .split(" ")
+                        .map((n) => n[0])
+                        .slice(0, 2)
+                        .join("")
+                        .toUpperCase()
+                    : "CU";
+
+                  return (
+                    <tr
+                      key={customer.id}
+                      className="hover:bg-surface-container-low/60 transition-colors group"
+                    >
+                      <td className="px-4 py-3.5">
+                        <div className="flex items-center gap-3">
+                          <div className="w-9 h-9 rounded-lg bg-surface-container-high text-primary font-semibold flex items-center justify-center text-sm shrink-0">
+                            {initials}
+                          </div>
+                          <div className="flex flex-col min-w-0">
+                            <span className="font-semibold text-on-surface truncate">
+                              {customer.name}
+                            </span>
+                            <span className="font-data-badge text-xs text-outline">
+                              ID: {customer.id.slice(0, 8)}
+                            </span>
+                          </div>
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <div className="flex flex-col">
+                          <span className="font-data-cell text-sm text-on-surface">
+                            {customer.phone || "—"}
+                          </span>
+                          {customer.email && (
+                            <span className="text-xs text-on-surface-variant">{customer.email}</span>
+                          )}
+                        </div>
+                      </td>
+                      <td className="px-4 py-3.5 text-on-surface-variant max-w-xs truncate">
+                        {customer.notes || "—"}
+                      </td>
+                      <td className="px-4 py-3.5">
+                        <span
+                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-data-badge text-xs font-semibold capitalize ${
+                            customer.status === "active"
+                              ? "bg-tertiary-container/15 text-tertiary"
+                              : "bg-surface-container-high text-on-surface-variant"
+                          }`}
                         >
-                          New Order
-                        </Link>
-                        {canMutate && customer.status === "active" ? (
-                          <>
-                            <button
-                              onClick={() => handleOpenEdit(customer)}
-                              className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
-                            >
-                              Edit
-                            </button>
-                            <button
-                              onClick={() => handleArchive(customer)}
-                              className="rounded-lg border border-rose-200 bg-rose-50 px-2.5 py-1 text-xs font-semibold text-rose-700 hover:bg-rose-100"
-                            >
-                              Archive
-                            </button>
-                          </>
-                        ) : !canMutate ? (
-                          <span className="text-xs text-slate-400 py-1">Read-only</span>
-                        ) : null}
-                      </div>
-                    </td>
-                  </tr>
-                ))}
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              customer.status === "active" ? "bg-tertiary" : "bg-outline"
+                            }`}
+                          ></span>
+                          {customer.status}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-right">
+                        <div className="flex justify-end items-center gap-2">
+                          <Link
+                            href={`/workspace/${orgId}/orders?customerId=${customer.id}`}
+                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
+                          >
+                            <span className="material-symbols-outlined text-[14px]">add_shopping_cart</span>
+                            <span>New Order</span>
+                          </Link>
+                          {canMutate && customer.status === "active" ? (
+                            <>
+                              <button
+                                onClick={() => handleOpenEdit(customer)}
+                                className="rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-2.5 py-1 text-xs font-medium text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
+                              >
+                                Edit
+                              </button>
+                              <button
+                                onClick={() => handleArchive(customer)}
+                                className="rounded-lg border border-error/20 bg-error/5 px-2.5 py-1 text-xs font-medium text-error hover:bg-error/10 transition-colors"
+                              >
+                                Archive
+                              </button>
+                            </>
+                          ) : !canMutate ? (
+                            <span className="text-xs text-on-surface-variant py-1">Read-only</span>
+                          ) : null}
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
               </tbody>
             </table>
           </div>

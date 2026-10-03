@@ -7,6 +7,7 @@ import {
   getSuggestedPrompts,
 } from "@/lib/schemas/assistant";
 import { useAssistantQuery } from "@/hooks/use-assistant";
+import { BizPilotLogo } from "@/components/ui/bizpilot-logo";
 
 interface AssistantViewProps {
   orgId: string;
@@ -58,52 +59,47 @@ export function AssistantView({
   }, [initialPrompt]);
 
   const handleSendMessage = (textToSend?: string) => {
-    const text = (textToSend ?? inputMessage).trim();
+    const text = (textToSend !== undefined ? textToSend : inputMessage).trim();
     if (!text || assistantMutation.isPending) return;
 
-    const userMsgId = `user_${Date.now()}`;
-    const newMsg: MessageItem = {
-      id: userMsgId,
-      role: "user",
-      content: text,
-    };
-
-    setMessages((prev) => [...prev, newMsg]);
-    setInputMessage("");
     setLastPrompt(text);
+    const userMsgId = `user-${Date.now()}`;
+    const newMessages: MessageItem[] = [
+      ...messages,
+      { id: userMsgId, role: "user", content: text },
+    ];
+    setMessages(newMessages);
+    setInputMessage("");
 
-    // Build bounded conversation history (transient, max 6 items)
-    const historyPayload: AssistantMessage[] = messages.slice(-6).map((m) => ({
+    // Prepare message payload
+    const queryPayload: AssistantMessage[] = newMessages.map((m) => ({
       role: m.role,
       content: m.content,
     }));
 
     assistantMutation.mutate(
-      {
-        message: text,
-        conversation_history: historyPayload,
-      },
+      { message: text, conversation_history: queryPayload },
       {
         onSuccess: (data: AssistantResponse) => {
           setMessages((prev) => [
             ...prev,
             {
-              id: `asst_${Date.now()}`,
+              id: `assistant-${Date.now()}`,
               role: "assistant",
               content: data.content,
               responseMeta: data,
             },
           ]);
         },
-        onError: (err: Error) => {
+        onError: (err: unknown) => {
+          const errMessage =
+            err instanceof Error ? err.message : "Failed to obtain response from assistant.";
           setMessages((prev) => [
             ...prev,
             {
-              id: `asst_err_${Date.now()}`,
+              id: `err-${Date.now()}`,
               role: "assistant",
-              content:
-                err.message ||
-                "The AI assistant encountered a temporary connectivity issue. Core operations remain unaffected.",
+              content: errMessage,
               isError: true,
             },
           ]);
@@ -131,21 +127,22 @@ export function AssistantView({
   };
 
   return (
-    <div className="flex h-full max-h-screen flex-col bg-gray-50">
-      {/* Header */}
-      <header className="flex flex-wrap items-center justify-between border-b border-gray-200 bg-white px-6 py-4">
+    <div className="flex h-full max-h-screen flex-col bg-surface">
+      {/* Header (Stitch Flagship Intelligence Top Bar) */}
+      <header className="flex flex-wrap items-center justify-between border-b border-surface-container-high/60 bg-surface/90 px-6 py-4 shadow-xs backdrop-blur-md">
         <div>
-          <div className="flex items-center gap-2">
-            <h1 className="text-xl font-bold tracking-tight text-gray-900">
+          <div className="flex items-center gap-2.5">
+            <BizPilotLogo size={24} className="w-6 h-6" />
+            <h1 className="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">
               BizPilot Copilot
             </h1>
-            <span className="rounded-full bg-blue-100 px-2.5 py-0.5 text-xs font-semibold text-blue-800">
+            <span className="rounded-full bg-primary-fixed px-2.5 py-0.5 font-data-badge text-data-badge font-semibold text-primary">
               Read-Only Business Copilot (P0)
             </span>
           </div>
-          <p className="mt-0.5 text-xs text-gray-500">
+          <p className="mt-0.5 font-label-md text-label-md text-on-surface-variant">
             Grounded in your PostgreSQL business records. Role:{" "}
-            <span className="font-semibold uppercase text-gray-700">{userRole}</span>
+            <span className="font-semibold uppercase text-on-surface">{userRole}</span>
           </p>
         </div>
 
@@ -153,7 +150,7 @@ export function AssistantView({
           <button
             type="button"
             onClick={handleClearThread}
-            className="rounded-md border border-gray-300 bg-white px-3 py-1.5 text-xs font-medium text-gray-700 hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3 py-1.5 font-label-md text-label-md font-semibold text-on-surface hover:bg-surface-container transition-colors shadow-xs"
           >
             Clear Thread
           </button>
@@ -161,40 +158,50 @@ export function AssistantView({
       </header>
 
       {/* Main Conversation Container */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6">
+      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
         <div className="mx-auto max-w-4xl space-y-4">
           {/* Welcome State when no messages */}
           {messages.length === 0 && (
-            <div className="rounded-xl border border-gray-200 bg-white p-6 shadow-sm">
+            <div className="rounded-2xl border border-surface-container-high/80 bg-surface-container-lowest p-6 sm:p-8 shadow-xs relative overflow-hidden">
+              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-tertiary" />
               <div className="max-w-2xl">
-                <h2 className="text-lg font-semibold text-gray-900">
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="font-data-badge text-data-badge px-2 py-0.5 rounded bg-surface-container-high text-primary font-semibold">
+                    Read-only assistant
+                  </span>
+                </div>
+                <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface tracking-tight">
                   Welcome to BizPilot Copilot
                 </h2>
-                <p className="mt-1 text-sm text-gray-600">
+                <p className="mt-2 font-body-md text-body-md text-on-surface-variant leading-relaxed">
                   I can answer factual questions about your sales, inventory stock levels,
                   recorded payments, customer balances, and operational summaries.
                 </p>
-                <div className="mt-3 rounded-md bg-blue-50 p-3 text-xs text-blue-800">
-                  <span className="font-semibold">Note:</span> BizPilot AI is strictly
-                  read-only. To record orders, adjust inventory, or record payments,
-                  please use the workspace forms.
+                <div className="mt-4 rounded-xl bg-surface-container-low p-3.5 text-xs text-on-surface-variant flex items-center gap-2 border border-surface-container-high/40">
+                  <span className="font-semibold text-primary font-mono">ℹ️ Note:</span>
+                  <span>
+                    BizPilot AI is strictly read-only. To record orders, adjust inventory, or record payments,
+                    please use the workspace forms.
+                  </span>
                 </div>
               </div>
 
               <div className="mt-6">
-                <h3 className="text-xs font-semibold uppercase tracking-wider text-gray-500">
+                <h3 className="font-label-caps text-label-caps uppercase text-outline tracking-wider text-[11px]">
                   Suggested Business Questions
                 </h3>
-                <div className="mt-3 grid gap-2 sm:grid-cols-2">
+                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
                   {suggestedPrompts.map((prompt) => (
                     <button
                       key={prompt}
                       type="button"
                       onClick={() => handleSendMessage(prompt)}
-                      className="flex items-center justify-between rounded-lg border border-gray-200 bg-gray-50 p-3 text-left text-xs font-medium text-gray-800 transition hover:border-blue-300 hover:bg-blue-50/50 focus:outline-none focus:ring-2 focus:ring-blue-500"
+                      className="flex items-center justify-between rounded-xl border border-surface-container-high/70 bg-surface-container-low/60 p-3.5 text-left text-xs font-medium text-on-surface transition hover:border-primary hover:bg-surface-container-high shadow-xs group"
                     >
-                      <span>{prompt}</span>
-                      <span className="text-blue-600 font-bold ml-2">→</span>
+                      <span className="font-body-sm text-body-sm">{prompt}</span>
+                      <span className="text-primary font-bold ml-2 group-hover:translate-x-0.5 transition-transform">
+                        →
+                      </span>
                     </button>
                   ))}
                 </div>
@@ -211,42 +218,42 @@ export function AssistantView({
               }`}
             >
               <div
-                className={`max-w-2xl rounded-xl p-4 shadow-sm ${
+                className={`max-w-2xl rounded-2xl p-4 sm:p-5 shadow-xs ${
                   msg.role === "user"
-                    ? "bg-blue-600 text-white"
+                    ? "bg-primary-container text-on-primary rounded-tr-xs font-body-md shadow-sm"
                     : msg.isError
-                    ? "border border-red-200 bg-red-50 text-red-900"
-                    : "border border-gray-200 bg-white text-gray-900"
+                    ? "border border-error/30 bg-error-container/30 text-on-error-container"
+                    : "border border-surface-container-high/80 bg-surface-container-lowest text-on-surface"
                 }`}
               >
-                <div className="mb-1 flex items-center justify-between gap-4 text-[11px] opacity-75">
-                  <span className="font-semibold uppercase tracking-wider">
+                <div className="mb-2 flex items-center justify-between gap-4 text-[11px] opacity-80">
+                  <span className="font-semibold uppercase tracking-wider font-label-caps">
                     {msg.role === "user" ? "You" : "BizPilot AI"}
                   </span>
                   {msg.responseMeta?.model && (
-                    <span className="text-[10px] text-gray-400">
+                    <span className="font-mono text-[10px] text-outline">
                       {msg.responseMeta.model}
                     </span>
                   )}
                 </div>
 
-                <div className="whitespace-pre-wrap text-sm leading-relaxed">
+                <div className="whitespace-pre-wrap font-body-md text-body-md leading-relaxed">
                   {msg.content}
                 </div>
 
                 {/* Grounding & Provenance Metadata Citation */}
                 {msg.responseMeta && (
-                  <div className="mt-3 border-t border-gray-100 pt-2">
+                  <div className="mt-3 border-t border-surface-container-high/60 pt-2.5">
                     {msg.responseMeta.provenance &&
                       msg.responseMeta.provenance.length > 0 && (
                         <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="text-[11px] font-medium text-gray-500">
+                          <span className="font-label-md text-[11px] font-medium text-on-surface-variant">
                             Grounded by:
                           </span>
                           {msg.responseMeta.provenance.map((p, idx) => (
                             <span
                               key={idx}
-                              className="inline-flex items-center rounded bg-green-50 px-2 py-0.5 text-[10px] font-semibold text-green-700 border border-green-200"
+                              className="inline-flex items-center rounded-lg bg-surface-container px-2 py-0.5 font-data-cell text-[10px] font-semibold text-primary border border-outline-variant/40"
                             >
                               {p.source_tool}
                               {p.period_applied ? ` (${p.period_applied})` : ""}
@@ -257,7 +264,7 @@ export function AssistantView({
 
                     {msg.responseMeta.tool_calls &&
                       msg.responseMeta.tool_calls.some((t) => t.status === "denied") && (
-                        <div className="mt-1 inline-flex items-center rounded bg-amber-50 px-2 py-0.5 text-[10px] font-medium text-amber-800 border border-amber-200">
+                        <div className="mt-1.5 inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 font-data-badge text-[10px] font-semibold text-amber-900 border border-amber-300">
                           Role restriction: restricted data omitted
                         </div>
                       )}
@@ -270,8 +277,8 @@ export function AssistantView({
           {/* Loading Indicator */}
           {assistantMutation.isPending && (
             <div className="flex items-start">
-              <div className="flex items-center gap-2 rounded-xl border border-gray-200 bg-white p-3.5 shadow-sm text-xs font-medium text-gray-600">
-                <span className="h-2 w-2 animate-ping rounded-full bg-blue-600" />
+              <div className="flex items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 shadow-xs text-xs font-medium text-on-surface-variant">
+                <span className="h-2 w-2 animate-ping rounded-full bg-primary" />
                 <span>Consulting deterministic business records...</span>
               </div>
             </div>
@@ -279,14 +286,14 @@ export function AssistantView({
 
           {/* Failure & Retry Action */}
           {assistantMutation.isError && (
-            <div className="rounded-lg border border-red-200 bg-red-50 p-3 text-xs text-red-800 flex items-center justify-between">
+            <div className="rounded-2xl border border-error/30 bg-error-container/20 p-4 text-xs text-on-error-container flex items-center justify-between">
               <span>
                 Unable to complete request. Please check your connection or try again.
               </span>
               <button
                 type="button"
                 onClick={handleRetry}
-                className="ml-3 rounded bg-red-100 px-2.5 py-1 font-semibold text-red-900 hover:bg-red-200"
+                className="ml-3 rounded-lg bg-error-container px-3 py-1 font-semibold text-on-error-container hover:bg-error-container/80 transition-colors"
               >
                 Retry
               </button>
@@ -297,8 +304,8 @@ export function AssistantView({
         </div>
       </div>
 
-      {/* Input Composer */}
-      <footer className="border-t border-gray-200 bg-white p-4">
+      {/* Input Composer (Stitch Floating Input Ribbon) */}
+      <footer className="border-t border-surface-container-high/60 bg-surface-container-lowest p-4 shadow-sm">
         <div className="mx-auto max-w-4xl">
           <form
             onSubmit={(e) => {
@@ -315,17 +322,17 @@ export function AssistantView({
               onKeyDown={handleKeyDown}
               disabled={assistantMutation.isPending}
               placeholder="Ask a question about your sales, stock, customers, or payments..."
-              className="flex-1 rounded-lg border border-gray-300 px-4 py-2.5 text-sm text-gray-900 placeholder-gray-500 shadow-sm focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 disabled:bg-gray-100"
+              className="flex-1 rounded-xl border border-outline-variant/60 bg-surface-container-low px-4 py-2.5 font-body-md text-sm text-on-surface placeholder:text-outline shadow-inner focus:border-primary focus:bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:opacity-50 transition-all"
             />
             <button
               type="submit"
               disabled={!inputMessage.trim() || assistantMutation.isPending}
-              className="inline-flex items-center justify-center rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 disabled:cursor-not-allowed disabled:bg-blue-300"
+              className="inline-flex items-center justify-center rounded-xl bg-primary hover:bg-primary-container px-5 py-2.5 font-body-sm text-sm font-semibold text-on-primary shadow-xs transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
             >
               Send
             </button>
           </form>
-          <p className="mt-2 text-center text-[11px] text-gray-400">
+          <p className="mt-2 text-center font-label-md text-[11px] text-outline">
             BizPilot AI answers are grounded in database evidence. Conversational context is transient.
           </p>
         </div>

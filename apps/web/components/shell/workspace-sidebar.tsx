@@ -169,9 +169,6 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
           <span className="font-headline-sm text-headline-sm tracking-tight text-on-surface font-semibold">
             BizPilot AI
           </span>
-          <span className="ml-auto font-data-badge text-data-badge px-1.5 py-0.5 rounded bg-surface-container-highest text-primary font-medium">
-            ERP
-          </span>
         </Link>
 
         {/* Workspace Quick Switcher */}
@@ -237,17 +234,6 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
                           />
                           <span className="font-body-md text-body-md">{item.name}</span>
                         </div>
-                        {item.name === "BizPilot AI" && (
-                          <span
-                            className={`font-data-badge text-[10px] px-1.5 py-0.5 rounded-full ${
-                              isActive
-                                ? "bg-white/20 text-white"
-                                : "bg-secondary-fixed text-on-secondary-fixed font-semibold"
-                            }`}
-                          >
-                            v2.4
-                          </span>
-                        )}
                       </Link>
                     </li>
                   );
@@ -260,16 +246,6 @@ export function WorkspaceSidebar({ orgId, onNavigate, className = "" }: Workspac
 
       {/* Operational Status & User Session Footer */}
       <div className="p-space-sm flex flex-col gap-space-xs border-t border-surface-container-high/60 bg-surface-container-low">
-        <div className="flex items-center justify-between px-space-sm py-space-xxs text-label-md font-label-md">
-          <span className="text-on-surface-variant flex items-center gap-1">
-            <span>Enterprise Sync</span>
-          </span>
-          <div className="flex items-center gap-1.5 text-tertiary font-semibold">
-            <span className="w-2 h-2 rounded-full bg-tertiary-fixed-dim inline-block animate-pulse" />
-            <span>Operational</span>
-          </div>
-        </div>
-
         <div className="flex items-center justify-between p-space-xs rounded-lg bg-surface-container-lowest shadow-[0_1px_2px_rgba(15,23,42,0.04)]">
           <div className="min-w-0 pr-2 pl-1">
             <p className="truncate font-body-sm text-body-sm font-semibold text-on-surface">

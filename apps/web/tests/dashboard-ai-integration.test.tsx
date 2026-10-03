@@ -87,7 +87,7 @@ describe("UX-006: Dashboard & AI Workspace Integration", () => {
     await waitFor(() => {
       expect(screen.getByText("Operational Business Copilot")).toBeInTheDocument();
       expect(
-        screen.getByText(/ask questions about sales trends, low stock alerts, customer balances/i)
+        screen.getByText(/ask about sales, low stock, customer balances/i)
       ).toBeInTheDocument();
     });
 

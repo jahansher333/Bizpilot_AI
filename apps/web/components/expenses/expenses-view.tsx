@@ -125,183 +125,249 @@ export function ExpensesView({ orgId, userRole = "owner", token }: ExpensesViewP
   }
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Header */}
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight text-gray-900">
+    <div className="space-y-6 p-6 max-w-[1600px] mx-auto">
+      {/* Top Action & Context Header */}
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
+        <div className="flex flex-col gap-1 min-w-0">
+          <h1 className="font-headline-lg text-2xl lg:text-3xl font-semibold tracking-tight text-on-surface">
             Operating Expenses
           </h1>
-          <p className="text-sm text-gray-500">
-            Record direct business expenditures, categorize overheads, and maintain trace records.
+          <p className="font-body-md text-sm text-on-surface-variant max-w-3xl">
+            Record business expenses with amount, date, category and notes. Totals appear on the dashboard.
           </p>
         </div>
 
-        <div className="flex items-center gap-3">
+        {/* Action Suite */}
+        <div className="flex flex-wrap items-center gap-2 shrink-0">
           <Link
             href={`/workspace/${orgId}`}
-            className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm font-medium text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
           >
-            Dashboard
+            <span className="material-symbols-outlined text-[18px] text-outline">dashboard</span>
+            <span>Dashboard</span>
           </Link>
           {canManageCategories && (
             <button
               onClick={() => setIsCategoryManageOpen(true)}
-              className="inline-flex items-center rounded-md border border-gray-300 bg-white px-3 py-2 text-sm font-medium text-gray-700 shadow-sm hover:bg-gray-50 focus:outline-none"
+              className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm font-medium text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
             >
-              Categories
+              <span className="material-symbols-outlined text-[18px] text-outline">category</span>
+              <span>Categories</span>
             </button>
           )}
           {canCreate && (
             <button
               onClick={() => setIsCreateOpen(true)}
-              className="inline-flex items-center rounded-md bg-emerald-700 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-emerald-800 focus:outline-none"
+              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-body-sm text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container active:scale-[0.99] transition-all"
             >
-              Record Expense
+              <span className="material-symbols-outlined text-[18px]">add_circle</span>
+              <span>Record Expense</span>
             </button>
           )}
         </div>
       </div>
 
       {/* Operational Scope Notice */}
-      <div className="rounded-md border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-900 flex items-center justify-between">
-        <div>
-          <span className="font-semibold">Operational Outflow Tracking:</span> Direct recording of operational overheads and expenditures. Distinguishable from double-entry formal accounting ledgers.
+      <div className="rounded-xl border border-secondary/20 bg-surface-container-low p-4 text-xs text-on-surface flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <div className="w-7 h-7 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
+            <span className="material-symbols-outlined text-[16px]">info</span>
+          </div>
+          <div>
+            <span className="font-semibold text-on-surface">Operational Outflow Tracking:</span>{" "}
+            <span className="text-on-surface-variant">
+              Simple expense records only. This is not an accounting ledger, tax filing or bank reconciliation.
+            </span>
+          </div>
         </div>
       </div>
 
-      {/* Daily Summary Card */}
-      <div className="rounded-lg border border-gray-200 bg-white p-4 shadow-sm">
-        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
-          <div>
-            <span className="text-xs font-medium text-gray-500 uppercase tracking-wider">
+      {/* Executive KPI Grid (4 Metrics) */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
+        {/* Metric 1: Today's Expenses */}
+        <div className="p-5 rounded-xl bg-surface-container-lowest shadow-xs border border-surface-container-high/60 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="font-label-caps text-xs text-on-surface-variant uppercase tracking-wider">
               Today's Expenses ({todayStr})
             </span>
-            <div className="text-2xl font-bold text-gray-900 mt-0.5">
+            <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+              <span className="material-symbols-outlined text-[18px]">account_balance_wallet</span>
+            </div>
+          </div>
+          <div className="mt-3 mb-1">
+            <div className="font-data-metric text-2xl font-bold text-on-surface tracking-tight">
               {dailyTotalData
                 ? formatMoney(dailyTotalData.total_minor, dailyTotalData.currency_code)
                 : "Rs. 0.00"}
             </div>
           </div>
-          <div className="text-xs text-gray-500">
-            {dailyTotalData ? dailyTotalData.expense_count : 0} active expense(s) recorded today
+          <div className="flex items-center justify-between text-xs text-on-surface-variant pt-2 border-t border-surface-container-low">
+            <span className="flex items-center gap-1 text-tertiary font-data-badge font-semibold">
+              <span className="material-symbols-outlined text-[14px]">trending_up</span>{" "}
+              {dailyTotalData ? dailyTotalData.expense_count : 0} active recorded
+            </span>
           </div>
         </div>
-      </div>
 
-      {/* Filters */}
-      <div className="flex flex-col gap-3 sm:flex-row sm:items-center">
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Status:</label>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatusFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="all">All Statuses</option>
-            <option value="active">Active</option>
-            <option value="voided">Voided</option>
-            <option value="corrected">Corrected</option>
-          </select>
+        {/* Metric 3: Active Cost Centers */}
+        <div className="p-5 rounded-xl bg-surface-container-lowest shadow-xs border border-surface-container-high/60 flex flex-col justify-between">
+          <div className="flex items-center justify-between">
+            <span className="font-label-caps text-xs text-on-surface-variant uppercase tracking-wider">
+              Active Categories
+            </span>
+            <div className="w-8 h-8 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
+              <span className="material-symbols-outlined text-[18px]">category</span>
+            </div>
+          </div>
+          <div className="mt-3 mb-1">
+            <div className="font-data-metric text-2xl font-bold text-on-surface tracking-tight">
+              {categories.length}
+            </div>
+          </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          <label className="text-xs font-medium text-gray-600">Category:</label>
-          <select
-            value={categoryFilter}
-            onChange={(e) => setCategoryFilter(e.target.value)}
-            className="rounded-md border border-gray-300 bg-white px-2.5 py-1.5 text-xs text-gray-700 focus:border-indigo-500 focus:outline-none"
-          >
-            <option value="all">All Categories</option>
-            {categories.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.name}
-              </option>
-            ))}
-          </select>
+      </div>
+
+      {/* Filters Console */}
+      <div className="bg-surface-container-lowest p-4 rounded-xl shadow-xs border border-surface-container-high/60 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex flex-wrap items-center gap-4">
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
+              Status:
+            </label>
+            <select
+              value={statusFilter}
+              onChange={(e) => setStatusFilter(e.target.value)}
+              className="rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-1.5 font-body-sm text-xs text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
+            >
+              <option value="all">All Statuses</option>
+              <option value="active">Active</option>
+              <option value="voided">Voided</option>
+              <option value="corrected">Corrected</option>
+            </select>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <label className="text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
+              Category:
+            </label>
+            <select
+              value={categoryFilter}
+              onChange={(e) => setCategoryFilter(e.target.value)}
+              className="rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-1.5 font-body-sm text-xs text-on-surface focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
+            >
+              <option value="all">All Categories</option>
+              {categories.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.name}
+                </option>
+              ))}
+            </select>
+          </div>
+        </div>
+
+        <div className="text-xs text-outline font-data-badge">
+          Showing {expenses.length} record(s)
         </div>
       </div>
 
       {/* Table */}
-      <div className="overflow-hidden rounded-lg border border-gray-200 bg-white shadow-sm">
+      <div className="overflow-hidden rounded-xl border border-surface-container-high/60 bg-surface-container-lowest shadow-xs">
         {isLoading ? (
-          <div className="p-8 text-center text-sm text-gray-500">Loading expenses...</div>
+          <div className="p-8 text-center text-sm text-on-surface-variant">Loading expenses...</div>
         ) : error ? (
-          <div className="p-8 text-center text-sm text-red-500">
+          <div className="p-8 text-center text-sm text-error">
             Failed to load expenses.{" "}
             <button
               onClick={() => refetch()}
-              className="text-indigo-600 underline hover:text-indigo-800"
+              className="text-primary underline hover:text-primary-container font-medium ml-1"
             >
               Retry
             </button>
           </div>
         ) : expenses.length === 0 ? (
-          <div className="p-8 text-center text-sm text-gray-500">
+          <div className="p-8 text-center text-sm text-on-surface-variant">
             No expenses found matching the current filters.
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-gray-200 text-left text-xs">
-              <thead className="bg-gray-50 text-gray-500 font-medium">
-                <tr>
-                  <th className="px-4 py-3">Date</th>
-                  <th className="px-4 py-3">Category</th>
-                  <th className="px-4 py-3">Payee / Memo</th>
-                  <th className="px-4 py-3">Method</th>
-                  <th className="px-4 py-3 text-right">Amount</th>
-                  <th className="px-4 py-3 text-center">Status</th>
-                  <th className="px-4 py-3 text-right">Actions</th>
+            <table className="w-full text-left border-collapse text-xs">
+              <thead>
+                <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-xs uppercase h-10 select-none border-b border-surface-container-high/60">
+                  <th className="px-4 py-3 font-semibold">Date</th>
+                  <th className="px-4 py-3 font-semibold">Category</th>
+                  <th className="px-4 py-3 font-semibold">Payee / Memo</th>
+                  <th className="px-4 py-3 font-semibold">Method</th>
+                  <th className="px-4 py-3 text-right font-semibold">Amount</th>
+                  <th className="px-4 py-3 text-center font-semibold">Status</th>
+                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-gray-200">
+              <tbody className="divide-y divide-surface-container-low font-body-md text-sm text-on-surface">
                 {expenses.map((expense) => {
                   const catName = expense.expense_category_id
                     ? categoryMap.get(expense.expense_category_id) || "—"
                     : "—";
 
                   return (
-                    <tr key={expense.id} className="hover:bg-gray-50">
-                      <td className="px-4 py-3 text-gray-600">
+                    <tr key={expense.id} className="hover:bg-surface-container-low/60 transition-colors group">
+                      <td className="px-4 py-3.5 text-on-surface-variant font-data-cell">
                         {new Date(expense.occurred_at).toLocaleDateString()}
                       </td>
-                      <td className="px-4 py-3 font-medium text-gray-900">{catName}</td>
-                      <td className="px-4 py-3 text-gray-700">
-                        <div className="font-medium text-gray-900">
+                      <td className="px-4 py-3.5 font-medium text-on-surface">
+                        <span className="px-2 py-0.5 rounded bg-surface-container-high text-on-surface text-xs font-medium">
+                          {catName}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3.5 text-on-surface">
+                        <div className="font-semibold text-on-surface">
                           {expense.payee || "General Expense"}
                         </div>
                         {expense.description && (
-                          <div className="text-gray-500 text-[11px] truncate max-w-xs">
+                          <div className="text-on-surface-variant text-[11px] truncate max-w-xs">
                             {expense.description}
                           </div>
                         )}
                       </td>
-                      <td className="px-4 py-3 text-gray-600 capitalize">
+                      <td className="px-4 py-3.5 text-on-surface-variant capitalize">
                         {formatMethod(expense.payment_method)}
                       </td>
-                      <td className="px-4 py-3 text-right font-semibold text-gray-900">
+                      <td className="px-4 py-3.5 text-right font-semibold text-on-surface font-data-cell">
                         {formatMoney(expense.amount_minor, expense.currency_code)}
                       </td>
-                      <td className="px-4 py-3 text-center">
+                      <td className="px-4 py-3.5 text-center">
                         <span
-                          className={`inline-flex rounded-full border px-2 py-0.5 text-[10px] font-semibold capitalize ${getStatusBadge(
-                            expense.status
-                          )}`}
+                          className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 font-data-badge text-xs font-semibold capitalize ${
+                            expense.status === "active"
+                              ? "bg-tertiary-container/15 text-tertiary"
+                              : expense.status === "voided"
+                              ? "bg-error-container text-on-error-container"
+                              : "bg-secondary-fixed text-on-secondary-fixed"
+                          }`}
                         >
+                          <span
+                            className={`w-1.5 h-1.5 rounded-full ${
+                              expense.status === "active"
+                                ? "bg-tertiary"
+                                : expense.status === "voided"
+                                ? "bg-error"
+                                : "bg-secondary"
+                            }`}
+                          ></span>
                           {expense.status}
                         </span>
                       </td>
-                      <td className="px-4 py-3 text-right space-x-2">
+                      <td className="px-4 py-3.5 text-right space-x-2">
                         <button
                           onClick={() => handleOpenDetail(expense)}
-                          className="text-indigo-600 hover:text-indigo-800 font-medium"
+                          className="font-medium text-primary hover:text-primary-container transition-colors"
                         >
                           View
                         </button>
                         {expense.status === "active" && canCorrect && (
                           <button
                             onClick={() => handleOpenCorrect(expense)}
-                            className="text-amber-600 hover:text-amber-800 font-medium"
+                            className="font-medium text-secondary hover:text-secondary-container transition-colors"
                           >
                             Correct
                           </button>
@@ -309,7 +375,7 @@ export function ExpensesView({ orgId, userRole = "owner", token }: ExpensesViewP
                         {expense.status === "active" && canVoid && (
                           <button
                             onClick={() => handleOpenVoid(expense)}
-                            className="text-red-600 hover:text-red-800 font-medium"
+                            className="font-medium text-error hover:text-on-error-container transition-colors"
                           >
                             Void
                           </button>
