@@ -44,6 +44,18 @@ export function OrderCreateModal({
   const { data: customersData } = useCustomers(orgId, { status: "active", limit: 100 }, token);
   const createMutation = useCreateOrder(orgId, token);
 
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen) return null;
 
   const products = productsData?.items || [];
@@ -102,6 +114,11 @@ export function OrderCreateModal({
     e.preventDefault();
     setFormError(null);
 
+    if (items.some((it) => !it.product_id)) {
+      setFormError("Please select a product for each line item.");
+      return;
+    }
+
     const payload = {
       customer_id: customerId.trim() || undefined,
       items: items.map((it) => ({
@@ -131,18 +148,6 @@ export function OrderCreateModal({
       setFormError(err.message || "Failed to create order");
     }
   };
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    }
-    if (isOpen) {
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-    }
-  }, [isOpen, onClose]);
 
   return (
     <div
@@ -203,6 +208,21 @@ export function OrderCreateModal({
               </button>
             </div>
 
+            {products.length === 0 && (
+              <div className="mb-3 rounded-lg border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+                <span>
+                  ⚠️ No products found in your catalog. Please add products in <strong>Catalog</strong> first before creating an order.
+                </span>
+                <a
+                  href={`/workspace/${orgId}/catalog`}
+                  onClick={onClose}
+                  className="inline-flex items-center font-semibold text-amber-900 underline hover:text-amber-950 whitespace-nowrap"
+                >
+                  Go to Catalog →
+                </a>
+              </div>
+            )}
+
             <div className="space-y-3">
               {items.map((it, idx) => {
                 const lineTotal = it.quantity > 0 ? it.quantity * it.unit_price_minor : 0;
@@ -219,7 +239,11 @@ export function OrderCreateModal({
                         className="block w-full rounded-md border border-gray-300 px-2 py-1.5 text-xs focus:border-indigo-500 focus:outline-none"
                         required
                       >
-                        <option value="">Select product...</option>
+                        <option value="">
+                          {products.length === 0
+                            ? "No products available (Add in Catalog first)"
+                            : "Select product..."}
+                        </option>
                         {products.map((p) => (
                           <option key={p.id} value={p.id}>
                             {p.name} ({p.code}) — {formatMoney(p.default_price_minor)}

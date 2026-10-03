@@ -10,6 +10,18 @@ interface OrderDetailModalProps {
 }
 
 export function OrderDetailModal({ isOpen, onClose, order }: OrderDetailModalProps) {
+  useEffect(() => {
+    function handleKeyDown(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        onClose();
+      }
+    }
+    if (isOpen) {
+      window.addEventListener("keydown", handleKeyDown);
+      return () => window.removeEventListener("keydown", handleKeyDown);
+    }
+  }, [isOpen, onClose]);
+
   if (!isOpen || !order) return null;
 
   const getStatusBadge = (status: string) => {
@@ -24,18 +36,6 @@ export function OrderDetailModal({ isOpen, onClose, order }: OrderDetailModalPro
         return "bg-gray-100 text-gray-800 border-gray-200";
     }
   };
-
-  useEffect(() => {
-    function handleKeyDown(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        onClose();
-      }
-    }
-    if (isOpen) {
-      window.addEventListener("keydown", handleKeyDown);
-      return () => window.removeEventListener("keydown", handleKeyDown);
-    }
-  }, [isOpen, onClose]);
 
   return (
     <div

@@ -120,20 +120,29 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
   };
 
   return (
-    <div className="space-y-6 p-6">
-      {/* Top Banner & Header */}
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8 bg-surface min-h-screen">
+      {/* Top Banner & Header (Stitch Inventory Header) */}
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900">Inventory Management</h1>
-          <p className="text-sm text-slate-500">
+          <div className="flex items-center space-x-2">
+            <span className="font-label-caps text-[11px] uppercase tracking-wider text-primary font-semibold">
+              Warehousing & Logistics
+            </span>
+            <span className="text-outline">•</span>
+            <span className="font-mono text-xs text-outline">Real-Time Balances</span>
+          </div>
+          <h1 className="mt-1 font-display-lg text-2xl sm:text-3xl font-bold tracking-tight text-on-surface">
+            Inventory Management
+          </h1>
+          <p className="mt-1 font-body-md text-sm text-on-surface-variant">
             Track real-time stock balances, manage adjustments, and audit stock movements.
           </p>
         </div>
 
-        <div className="flex flex-wrap items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Link
             href={`/workspace/${orgId}/catalog`}
-            className="inline-flex items-center rounded-lg border border-slate-300 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-xs hover:bg-slate-50"
+            className="inline-flex items-center rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3.5 py-2 text-xs font-semibold text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
           >
             Manage Catalog
           </Link>
@@ -141,7 +150,7 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
             <button
               onClick={() => handleOpenOpeningModal()}
               disabled={!productsData?.items?.length}
-              className="inline-flex items-center rounded-lg bg-emerald-700 px-4 py-2 text-sm font-semibold text-white shadow-sm hover:bg-emerald-800 focus:outline-none focus:ring-2 focus:ring-emerald-600 focus:ring-offset-2 disabled:opacity-50"
+              className="inline-flex items-center rounded-xl bg-primary px-4 py-2 font-body-sm text-xs font-semibold text-on-primary shadow-xs hover:bg-primary-container transition-all active:scale-[0.99] disabled:opacity-50"
             >
               Record Opening Stock
             </button>
@@ -151,14 +160,14 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
 
       {/* Operational Stock Alert Banner */}
       {(stockMetrics.lowStockCount > 0 || stockMetrics.outOfStockCount > 0) && (
-        <div className="flex items-center justify-between rounded-xl border border-amber-200 bg-amber-50/70 p-4">
+        <div className="flex items-center justify-between rounded-2xl border border-amber-300/80 bg-amber-50/80 p-4 shadow-xs">
           <div className="flex items-center gap-3">
-            <span className="flex h-8 w-8 items-center justify-center rounded-full bg-amber-100 text-amber-800 font-bold text-sm">
-              !
+            <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-amber-100 text-amber-800 font-bold text-sm shadow-xs">
+              ⚠️
             </span>
             <div>
-              <p className="text-sm font-semibold text-amber-900">Stock Availability Attention Required</p>
-              <p className="text-xs text-amber-700">
+              <p className="text-sm font-semibold text-amber-950">Stock Availability Attention Required</p>
+              <p className="text-xs text-amber-800">
                 {stockMetrics.outOfStockCount > 0 && `${stockMetrics.outOfStockCount} product(s) out of stock. `}
                 {stockMetrics.lowStockCount > 0 && `${stockMetrics.lowStockCount} product(s) below reorder threshold (≤10).`}
               </p>
@@ -167,14 +176,14 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           <button
             type="button"
             onClick={() => setStatusFilter(stockMetrics.outOfStockCount > 0 ? "out_of_stock" : "low_stock")}
-            className="rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-900 shadow-xs hover:bg-amber-50"
+            className="rounded-xl border border-amber-300 bg-white px-3 py-1.5 font-label-md text-xs font-semibold text-amber-900 shadow-xs hover:bg-amber-50 transition-colors"
           >
             Filter Affected
           </button>
         </div>
       )}
 
-      {/* Search & Filter Bar */}
+      {/* Search & Filter Bar (Stitch Precision Control Bar) */}
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div className="relative flex-1 max-w-md">
           <input
@@ -182,7 +191,7 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
             placeholder="Search by product name or code..."
             value={searchTerm}
             onChange={(e) => setSearchTerm(e.target.value)}
-            className="block w-full rounded-lg border border-slate-300 px-3 py-2 text-sm placeholder-slate-400 focus:border-emerald-600 focus:outline-none focus:ring-1 focus:ring-emerald-600 shadow-xs"
+            className="block w-full rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
           />
         </div>
 
@@ -191,10 +200,10 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           <button
             type="button"
             onClick={() => setStatusFilter("all")}
-            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
               statusFilter === "all"
-                ? "bg-slate-800 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-on-surface text-surface shadow-xs"
+                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
             }`}
           >
             All ({productsData?.items?.length ?? 0})
@@ -202,10 +211,10 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           <button
             type="button"
             onClick={() => setStatusFilter("in_stock")}
-            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
               statusFilter === "in_stock"
-                ? "bg-emerald-700 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-tertiary text-on-tertiary shadow-xs"
+                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
             }`}
           >
             In Stock ({stockMetrics.inStockCount})
@@ -213,10 +222,10 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           <button
             type="button"
             onClick={() => setStatusFilter("low_stock")}
-            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
               statusFilter === "low_stock"
-                ? "bg-amber-600 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-amber-600 text-white shadow-xs"
+                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
             }`}
           >
             Low Stock ({stockMetrics.lowStockCount})
@@ -224,10 +233,10 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           <button
             type="button"
             onClick={() => setStatusFilter("out_of_stock")}
-            className={`rounded-lg px-2.5 py-1 text-xs font-semibold transition-colors ${
+            className={`rounded-xl px-3 py-1.5 font-data-badge text-xs font-semibold transition-all ${
               statusFilter === "out_of_stock"
-                ? "bg-rose-600 text-white"
-                : "border border-slate-200 bg-white text-slate-600 hover:bg-slate-50"
+                ? "bg-error text-on-error shadow-xs"
+                : "border border-outline-variant/60 bg-surface-container-lowest text-on-surface-variant hover:bg-surface-container-high"
             }`}
           >
             Out of Stock ({stockMetrics.outOfStockCount})
@@ -235,13 +244,13 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
         </div>
       </div>
 
-      {/* Table Content */}
-      <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs">
+      {/* Table Content (Stitch Enterprise Ledger Table) */}
+      <div className="overflow-hidden rounded-2xl border border-surface-container-high/80 bg-surface-container-lowest shadow-xs">
         {isLoading ? (
-          <div className="py-12 text-center text-sm text-slate-500">Loading inventory records...</div>
+          <div className="py-12 text-center text-sm text-outline">Loading inventory records...</div>
         ) : filteredProducts.length === 0 ? (
           <div className="py-12 text-center">
-            <p className="text-sm text-slate-500">
+            <p className="text-sm text-outline">
               {productsData?.items?.length === 0
                 ? "No active products found in catalog. Create products first."
                 : "No products match your search query."}
@@ -249,47 +258,47 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <thead className="bg-slate-50/80">
+            <table className="min-w-full divide-y divide-surface-container-high text-sm">
+              <thead className="bg-surface-container-low/40">
                 <tr>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Product</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Base Unit</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">On-Hand Stock</th>
-                  <th className="px-4 py-3 text-left font-semibold text-slate-600">Status</th>
-                  <th className="px-4 py-3 text-right font-semibold text-slate-600">Actions</th>
+                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Product</th>
+                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Base Unit</th>
+                  <th className="px-4 py-3 text-right font-label-caps uppercase text-outline text-[11px]">On-Hand Stock</th>
+                  <th className="px-4 py-3 text-left font-label-caps uppercase text-outline text-[11px]">Status</th>
+                  <th className="px-4 py-3 text-right font-label-caps uppercase text-outline text-[11px]">Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-slate-100 bg-white">
+              <tbody className="divide-y divide-surface-container-low bg-surface-container-lowest">
                 {filteredProducts.map((p) => {
                   const balInfo = balanceMap.get(p.id);
                   const isInitialized = balInfo !== undefined;
                   const onHand = isInitialized ? balInfo.onHand : 0;
 
                   return (
-                    <tr key={p.id} className="hover:bg-slate-50/60 transition-colors">
+                    <tr key={p.id} className="hover:bg-surface-container-low/50 transition-colors font-body-sm">
                       <td className="px-4 py-3">
-                        <div className="font-semibold text-slate-900">{p.name}</div>
-                        <div className="text-xs text-slate-500">{p.code}</div>
+                        <div className="font-semibold text-on-surface">{p.name}</div>
+                        <div className="font-mono text-xs text-primary font-data-cell">{p.code}</div>
                       </td>
-                      <td className="px-4 py-3 text-slate-600 capitalize">{p.base_unit}</td>
-                      <td className="px-4 py-3 text-right font-semibold text-slate-900">
+                      <td className="px-4 py-3 text-on-surface-variant capitalize">{p.base_unit}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-on-surface font-mono">
                         {isInitialized ? onHand : "—"}
                       </td>
                       <td className="px-4 py-3">
                         {!isInitialized ? (
-                          <span className="inline-flex rounded-full bg-slate-100 px-2.5 py-0.5 text-xs font-medium text-slate-700 border border-slate-200">
+                          <span className="inline-flex rounded-full bg-surface-container px-2.5 py-0.5 font-data-badge text-xs font-medium text-on-surface-variant border border-outline-variant/40">
                             Uninitialized
                           </span>
                         ) : onHand <= 0 ? (
-                          <span className="inline-flex rounded-full bg-rose-50 px-2.5 py-0.5 text-xs font-semibold text-rose-700 border border-rose-200">
+                          <span className="inline-flex rounded-full bg-error-container px-2.5 py-0.5 font-data-badge text-xs font-semibold text-on-error-container border border-error/20">
                             Out of Stock
                           </span>
                         ) : onHand <= 10 ? (
-                          <span className="inline-flex rounded-full bg-amber-50 px-2.5 py-0.5 text-xs font-semibold text-amber-800 border border-amber-200">
+                          <span className="inline-flex rounded-full bg-amber-100 px-2.5 py-0.5 font-data-badge text-xs font-semibold text-amber-800 border border-amber-200">
                             Low Stock
                           </span>
                         ) : (
-                          <span className="inline-flex rounded-full bg-emerald-50 px-2.5 py-0.5 text-xs font-semibold text-emerald-800 border border-emerald-200">
+                          <span className="inline-flex rounded-full bg-tertiary-fixed px-2.5 py-0.5 font-data-badge text-xs font-semibold text-on-tertiary-fixed border border-tertiary-fixed-dim">
                             In Stock
                           </span>
                         )}
@@ -298,7 +307,7 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
                         <div className="flex justify-end gap-2">
                           <button
                             onClick={() => handleOpenHistoryModal(p)}
-                            className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                            className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-2.5 py-1 text-xs font-semibold text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
                           >
                             History
                           </button>
@@ -308,7 +317,7 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
                               {!isInitialized ? (
                                 <button
                                   onClick={() => handleOpenOpeningModal(p.id)}
-                                  className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                                  className="rounded-xl bg-primary-fixed px-2.5 py-1 text-xs font-semibold text-primary border border-primary-fixed-dim hover:bg-primary-fixed-dim transition-colors"
                                 >
                                   Opening Stock
                                 </button>
@@ -316,13 +325,13 @@ export function InventoryView({ orgId, userRole = "owner", token }: InventoryVie
                                 <>
                                   <button
                                     onClick={() => handleOpenAdjustModal(p, "adjustment")}
-                                    className="rounded-lg bg-emerald-50 px-2.5 py-1 text-xs font-semibold text-emerald-800 border border-emerald-200 hover:bg-emerald-100"
+                                    className="rounded-xl bg-primary-fixed px-2.5 py-1 text-xs font-semibold text-primary border border-primary-fixed-dim hover:bg-primary-fixed-dim transition-colors"
                                   >
                                     Adjust Stock
                                   </button>
                                   <button
                                     onClick={() => handleOpenAdjustModal(p, "correction")}
-                                    className="rounded-lg border border-slate-300 px-2.5 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50 shadow-xs"
+                                    className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-2.5 py-1 text-xs font-semibold text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
                                   >
                                     Correct Count
                                   </button>

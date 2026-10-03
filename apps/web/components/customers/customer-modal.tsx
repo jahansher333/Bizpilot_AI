@@ -106,28 +106,47 @@ export function CustomerModal({
       role="dialog"
       aria-modal="true"
       aria-labelledby="customer-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
     >
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-        <h2 id="customer-modal-title" className="text-xl font-bold text-gray-900">
-          {isEditing ? "Edit Customer" : "Add Customer"}
-        </h2>
-        <p className="mt-1 text-sm text-gray-500">
-          {isEditing
-            ? "Update contact details and preferences for this customer."
-            : "Record a new customer profile. Phone numbers must be unique within active customers."}
-        </p>
+      <div className="w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6 shadow-xl border border-surface-container-high/60 animate-in fade-in zoom-in-95 duration-150">
+        <div className="flex items-start justify-between">
+          <div className="space-y-1">
+            <div className="flex items-center gap-2">
+              <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-semibold">
+                <span className="material-symbols-outlined text-[18px]">
+                  {isEditing ? "edit" : "person_add"}
+                </span>
+              </div>
+              <h2 id="customer-modal-title" className="font-headline-sm text-lg font-bold text-on-surface">
+                {isEditing ? "Edit Customer" : "Add Customer"}
+              </h2>
+            </div>
+            <p className="text-xs text-on-surface-variant">
+              {isEditing
+                ? "Update contact details and preferences for this customer profile."
+                : "Record a new customer profile. Phone numbers must be unique within active customers."}
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition-colors"
+          >
+            <span className="material-symbols-outlined text-[20px]">close</span>
+          </button>
+        </div>
 
         {error && (
-          <div role="alert" className="mt-4 rounded-md bg-red-50 p-3 text-sm text-red-700">
-            {error}
+          <div role="alert" className="mt-4 rounded-lg bg-error-container/15 border border-error/20 p-3 text-xs text-error font-medium flex items-center gap-2">
+            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
+            <span>{error}</span>
           </div>
         )}
 
-        <form onSubmit={handleSubmit} noValidate className="mt-4 space-y-4">
+        <form onSubmit={handleSubmit} noValidate className="mt-5 space-y-4">
           <div>
-            <label htmlFor="customer-name" className="block text-sm font-medium text-gray-700">
-              Customer Name <span className="text-red-500">*</span>
+            <label htmlFor="customer-name" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
+              Customer Name <span className="text-error">*</span>
             </label>
             <input
               id="customer-name"
@@ -135,13 +154,13 @@ export function CustomerModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Tariq Khan, Al-Rehman Traders"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm"
+              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
               required
             />
           </div>
 
           <div>
-            <label htmlFor="customer-phone" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="customer-phone" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
               Phone Number
             </label>
             <input
@@ -150,15 +169,15 @@ export function CustomerModal({
               value={phone}
               onChange={(e) => setPhone(e.target.value)}
               placeholder="e.g. 0300-1234567"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm"
+              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all font-data-cell"
             />
-            <p className="mt-1 text-xs text-gray-400">
+            <p className="mt-1 text-[11px] text-outline">
               Unique for active customers. Digits and Pakistani +92 formats supported.
             </p>
           </div>
 
           <div>
-            <label htmlFor="customer-email" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="customer-email" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
               Email Address
             </label>
             <input
@@ -167,12 +186,12 @@ export function CustomerModal({
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="e.g. customer@example.com"
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm"
+              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
             />
           </div>
 
           <div>
-            <label htmlFor="customer-notes" className="block text-sm font-medium text-gray-700">
+            <label htmlFor="customer-notes" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
               Notes
             </label>
             <textarea
@@ -181,22 +200,22 @@ export function CustomerModal({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Optional notes or delivery preferences..."
-              className="mt-1 block w-full rounded-md border border-gray-300 px-3 py-2 shadow-sm focus:border-indigo-500 focus:outline-none focus:ring-1 focus:ring-indigo-500 sm:text-sm"
+              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
             />
           </div>
 
-          <div className="mt-6 flex justify-end space-x-3">
+          <div className="mt-6 flex items-center justify-end gap-2.5 pt-2 border-t border-surface-container-low">
             <button
               type="button"
               onClick={onClose}
-              className="rounded-md border border-gray-300 px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
+              className="rounded-lg border border-outline-variant/40 px-4 py-2 font-body-sm text-sm font-medium text-on-surface hover:bg-surface-container-high transition-colors"
             >
               Cancel
             </button>
             <button
               type="submit"
               disabled={isPending}
-              className="rounded-md bg-indigo-600 px-4 py-2 text-sm font-medium text-white hover:bg-indigo-700 focus:outline-none disabled:opacity-50"
+              className="rounded-lg bg-primary px-4 py-2 font-body-sm text-sm font-medium text-on-primary hover:bg-primary-container active:scale-[0.99] transition-all shadow-sm disabled:opacity-50"
             >
               {isPending ? "Saving..." : isEditing ? "Save Changes" : "Create Customer"}
             </button>
