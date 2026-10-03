@@ -142,7 +142,7 @@ def test_alembic_configuration_and_head_revision() -> None:
     script = ScriptDirectory.from_config(cfg)
     heads = script.get_heads()
     assert len(heads) == 1, f"Expected exactly 1 alembic head, got {heads}"
-    assert heads[0] == "0012_expenses"
+    assert heads[0] == "0013_ai_metadata"
 
 
 @pytest.mark.asyncio

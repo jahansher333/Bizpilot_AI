@@ -13,6 +13,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import RefreshToken, User
@@ -79,7 +80,7 @@ async def test_refresh_successful_rotation_end_to_end(
     a2 = refresh_data["access_token"]
     assert r2 != r1
     assert refresh_data["token_type"] == "bearer"
-    assert refresh_data["expires_in"] == 900
+    assert refresh_data["expires_in"] == get_settings().auth.access_token_minutes * 60
 
     # 3. Verify A2 grants access to /api/auth/me
     me_resp = await auth_client.get(

@@ -12,6 +12,7 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.config import get_settings
 from app.db.session import get_session
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import User, UserCredential
@@ -67,7 +68,7 @@ async def test_login_successful_flow_and_me_endpoint(
     assert "access_token" in data
     assert "refresh_token" in data
     assert data["token_type"] == "bearer"
-    assert data["expires_in"] == 900
+    assert data["expires_in"] == get_settings().auth.access_token_minutes * 60
     token = data["access_token"]
 
     # Verify last_login_at was updated in PostgreSQL
