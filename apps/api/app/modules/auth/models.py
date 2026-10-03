@@ -10,6 +10,7 @@ from sqlalchemy import (
     CheckConstraint,
     DateTime,
     ForeignKey,
+    Integer,
     String,
     UUID,
 )
@@ -236,3 +237,35 @@ class PasswordResetToken(Base):
     def __repr__(self) -> str:
         # Never expose token_hash in string representation
         return f"<PasswordResetToken id={self.id} user_id={self.user_id} expires_at={self.expires_at} consumed_at={self.consumed_at}>"
+
+
+class AuthRateLimitBucket(Base):
+    """Fixed-window attempt counter for credential and recovery endpoints.
+
+    The subject (email/IP) is stored only as a SHA-256 digest, never in raw form.
+    """
+
+    __tablename__ = "auth_rate_limit_buckets"
+
+    scope: Mapped[str] = mapped_column(String(32), primary_key=True)
+    key_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    window_started_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    attempt_count: Mapped[int] = mapped_column(
+        Integer,
+        nullable=False,
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        index=True,
+    )
+
+    __table_args__ = (
+        CheckConstraint("attempt_count >= 0", name="attempt_count_nonnegative"),
+    )
+
+    def __repr__(self) -> str:
+        return f"<AuthRateLimitBucket scope={self.scope!r} attempt_count={self.attempt_count}>"

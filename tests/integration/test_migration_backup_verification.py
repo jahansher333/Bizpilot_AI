@@ -1,7 +1,7 @@
 """Migration and Backup/Restore Verification Suite (HARD-005).
 
 Verifies:
-1. Complete linear Alembic migration chain (0001 through 0013_ai_metadata) with zero forks.
+1. Complete linear Alembic migration chain (0001 through 0014_auth_rate_limits) with zero forks.
 2. Complete schema invariant check: all 13 tenant tables contain organization_id and foreign keys.
 3. Row-count and financial/inventory integrity verification during backup snapshot/restore cycle.
 4. Tenant isolation preserved post-restore (no cross-tenant leakage).
@@ -60,13 +60,14 @@ def test_alembic_migration_chain_is_linear_and_unbroken():
     heads = script.get_heads()
     assert len(heads) == 1, f"Expected exactly 1 migration head, got {heads}"
     head_rev = heads[0]
-    assert head_rev == "0013_ai_metadata"
+    assert head_rev == "0014_auth_rate_limits"
 
     # 2. Traverse history from base to head to ensure unbroken lineage
     revisions = list(script.walk_revisions("base", head_rev))
-    assert len(revisions) == 13, f"Expected 13 migrations in P0 roadmap, found {len(revisions)}"
+    assert len(revisions) == 14, f"Expected 14 migrations in P0 roadmap, found {len(revisions)}"
 
     expected_order = [
+        "0014_auth_rate_limits",
         "0013_ai_metadata",
         "0012_expenses",
         "0011_payments",

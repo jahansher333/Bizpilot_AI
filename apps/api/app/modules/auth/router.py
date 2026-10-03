@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import AuthenticationException, RateLimitException
 from app.db.session import get_session
 from app.modules.auth.logout import LogoutService
+from app.modules.auth.rate_limit import RATE_LIMIT_MESSAGE, AuthRateLimiter
 from app.modules.auth.recovery import PasswordRecoveryService
 from app.modules.auth.refresh import RefreshService
 from app.modules.auth.schemas import (
@@ -28,6 +30,15 @@ from app.modules.auth.service import LoginService, RegistrationService
 from app.modules.auth.tokens import AuthenticatedUser, get_current_user
 
 router = APIRouter(prefix="/auth", tags=["auth"])
+
+
+def _client_ip(http_request: Request) -> str:
+    # Socket peer address only; X-Forwarded-For is trusted solely via the server's proxy-headers config.
+    return http_request.client.host if http_request.client else "unknown"
+
+
+def _rate_limiter(session: AsyncSession, http_request: Request) -> AuthRateLimiter:
+    return AuthRateLimiter(session, getattr(http_request.app.state, "settings", None))
 
 
 @router.post(
@@ -55,11 +66,25 @@ async def register(
 )
 async def login(
     request: LoginRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> LoginResponse:
-    """Handle user login."""
+    """Handle user login with per (email, IP) failed-attempt limiting."""
+    limiter = _rate_limiter(session, http_request)
+    client_ip = _client_ip(http_request)
+    await limiter.ensure_login_allowed(request.email, client_ip)
+
     service = LoginService(session)
-    return await service.login(request)
+    try:
+        response = await service.login(request)
+    except AuthenticationException:
+        # Persist the failure before the request transaction rolls back.
+        await limiter.record_login_failure(request.email, client_ip)
+        await session.commit()
+        raise
+
+    await limiter.clear_login_failures(request.email, client_ip)
+    return response
 
 
 @router.post(
@@ -120,9 +145,15 @@ async def logout_all(
 )
 async def forgot_password(
     request: ForgotPasswordRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> ForgotPasswordResponse:
-    """Handle password recovery initiation."""
+    """Handle password recovery initiation with per-email request limiting."""
+    allowed = await _rate_limiter(session, http_request).consume_forgot_password(request.email)
+    # Commit the counter first so it survives any later rollback of the request transaction.
+    await session.commit()
+    if not allowed:
+        raise RateLimitException(RATE_LIMIT_MESSAGE)
     service = PasswordRecoveryService(session)
     return await service.request_password_reset(request)
 
@@ -136,9 +167,15 @@ async def forgot_password(
 )
 async def reset_password(
     request: ResetPasswordRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> ResetPasswordResponse:
-    """Handle password reset redemption."""
+    """Handle password reset redemption with per-IP request limiting."""
+    allowed = await _rate_limiter(session, http_request).consume_reset_password(_client_ip(http_request))
+    # Commit the counter first so invalid-token attempts still count after a rollback.
+    await session.commit()
+    if not allowed:
+        raise RateLimitException(RATE_LIMIT_MESSAGE)
     service = PasswordRecoveryService(session)
     return await service.reset_password(request)
 

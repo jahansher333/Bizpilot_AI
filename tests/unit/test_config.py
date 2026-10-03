@@ -290,6 +290,26 @@ def test_production_rejects_placeholder_previous_signing_secret() -> None:
         Settings(**config)
 
 
+def test_auth_rate_limit_defaults_and_validation() -> None:
+    settings = Settings(**values())
+    assert settings.auth.rate_limit_window_minutes == 15
+    assert settings.auth.login_max_failures == 5
+    assert settings.auth.recovery_max_requests == 5
+
+    config = values()
+    config["auth"]["login_max_failures"] = 0
+    with pytest.raises(ValidationError):
+        Settings(**config)
+
+
+def test_auth_rate_limit_read_from_environment(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setenv("BIZPILOT_AUTH__LOGIN_MAX_FAILURES", "10")
+    config = values()
+    del config["auth"]
+    monkeypatch.setenv("BIZPILOT_AUTH__SIGNING_SECRET", "secure-runtime-signing-secret-over-32-characters")
+    assert Settings(**config).auth.login_max_failures == 10
+
+
 def test_refresh_token_days_default_and_validation() -> None:
     settings = Settings(**values())
     assert settings.auth.refresh_token_days == 30

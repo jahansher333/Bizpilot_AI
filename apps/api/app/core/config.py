@@ -45,6 +45,9 @@ class AuthenticationSettings(BaseModel):
     previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
     refresh_token_days: int = Field(default=30, ge=1)
     password_reset_token_minutes: int = Field(default=15, ge=1, le=1440)
+    rate_limit_window_minutes: int = Field(default=15, ge=1, le=1440)
+    login_max_failures: int = Field(default=5, ge=1, le=1000)
+    recovery_max_requests: int = Field(default=5, ge=1, le=1000)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
@@ -127,6 +130,9 @@ class Settings(BaseSettings):
                 "bizpilot_auth__jwt_issuer", "bizpilot_auth__jwt_audience",
                 "bizpilot_auth__previous_signing_secrets",
                 "bizpilot_auth__refresh_token_days",
+                "bizpilot_auth__rate_limit_window_minutes",
+                "bizpilot_auth__login_max_failures",
+                "bizpilot_auth__recovery_max_requests",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
 
                 "bizpilot_logging__level", "bizpilot_logging__json_logs",

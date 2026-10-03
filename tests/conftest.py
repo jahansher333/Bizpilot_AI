@@ -40,7 +40,13 @@ def test_settings() -> Settings:
     return Settings(
         environment="test",
         database={"url": "postgresql://test_user:test_password@localhost/bizpilot_test"},
-        auth={"signing_secret": "test-only-signing-secret"},
+        # High auth rate limits keep unrelated live-database tests deterministic across runs;
+        # tests/integration/test_auth_rate_limit.py builds its own app with low limits.
+        auth={
+            "signing_secret": "test-only-signing-secret",
+            "login_max_failures": 1000,
+            "recovery_max_requests": 1000,
+        },
         ai={"enabled": False},
         logging={"level": "INFO", "json_logs": False},
     )
