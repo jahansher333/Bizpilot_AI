@@ -21,7 +21,7 @@ function AssistantPageContent() {
 
 export default function AssistantPage() {
   return (
-    <Suspense fallback={<div className="p-8 text-sm text-gray-500">Loading assistant...</div>}>
+    <Suspense fallback={<div className="main t-body-sm muted" aria-busy="true">Loading BizPilot AI…</div>}>
       <AssistantPageContent />
     </Suspense>
   );

@@ -8,7 +8,7 @@ import { Icon } from "@/components/ui/icon";
 import { Money, formatMinor } from "@/components/ui/money";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import { parseAmountMinor } from "@/components/finance/record-meta";
+import { ReviewRows, parseAmountMinor } from "@/components/finance/record-meta";
 
 interface ExpenseCorrectModalProps {
   isOpen: boolean;
@@ -28,6 +28,7 @@ export function ExpenseCorrectModal({ isOpen, onClose, expense, orgId, token, on
   const [method, setMethod] = useState<ExpensePaymentMethod>("cash");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<"edit" | "review">("edit");
   const idemKey = useRef(newIdempotencyKey());
 
   const { data: categories } = useExpenseCategories(orgId, "active", token);
@@ -43,19 +44,21 @@ export function ExpenseCorrectModal({ isOpen, onClose, expense, orgId, token, on
     setMethod(expense.payment_method);
     setReason("");
     setError(null);
+    setStep("edit");
     idemKey.current = newIdempotencyKey();
   }, [isOpen, expense]);
 
   if (!expense) return null;
   const archivedCategory = expense.expense_category_id && !categories?.items.some((c) => c.id === expense.expense_category_id);
 
-  async function submit() {
-    if (!expense) return;
-    setError(null);
+  const categoryLabel = (id: string) => (id ? (categories?.items.find((c) => c.id === id)?.name ?? "Archived category") : "Uncategorised");
+
+  function payload() {
+    if (!expense) return null;
     const amountMinor = parseAmountMinor(amount);
     if (amountMinor === null) {
       setError("Enter an amount greater than 0.");
-      return;
+      return null;
     }
     const parsed = expenseCorrectSchema.safeParse({
       reason,
@@ -68,16 +71,62 @@ export function ExpenseCorrectModal({ isOpen, onClose, expense, orgId, token, on
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0].message);
-      return;
+      return null;
     }
+    return parsed.data;
+  }
+
+  function review() {
+    setError(null);
+    if (payload()) setStep("review");
+  }
+
+  async function submit() {
+    if (!expense) return;
+    const data = payload();
+    if (!data) return setStep("edit");
     try {
-      const replacement = await correctMutation.mutateAsync({ expenseId: expense.id, payload: parsed.data, idempotencyKey: `web-correct-${idemKey.current}` });
+      const replacement = await correctMutation.mutateAsync({ expenseId: expense.id, payload: data, idempotencyKey: `web-correct-${idemKey.current}` });
       notify({ title: "Expense corrected", description: "The original is kept in history, marked Corrected." });
       onCorrected?.(replacement);
       onClose();
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn’t save the correction. Nothing was changed.");
+      setStep("edit");
     }
+  }
+
+  const changes: [string, React.ReactNode, React.ReactNode][] = [];
+  const newAmount = parseAmountMinor(amount);
+  if (newAmount !== null && newAmount !== expense.amount_minor) changes.push(["Amount", formatMinor(expense.amount_minor), formatMinor(newAmount)]);
+  if (categoryId !== (expense.expense_category_id ?? "")) changes.push(["Category", categoryLabel(expense.expense_category_id ?? ""), categoryLabel(categoryId)]);
+  if (description.trim() !== (expense.description ?? "")) changes.push(["Description", expense.description || "—", description.trim() || "—"]);
+  if (payee.trim() !== (expense.payee ?? "")) changes.push(["Paid to", expense.payee || "—", payee.trim() || "—"]);
+  if (method !== expense.payment_method) changes.push(["Paid by", EXPENSE_METHOD_LABEL[expense.payment_method] ?? expense.payment_method, EXPENSE_METHOD_LABEL[method]]);
+
+  if (step === "review") {
+    return (
+      <Modal
+        open={isOpen}
+        tone="warning"
+        title="Correct this expense?"
+        description="The original stays visible, marked “Corrected”. A new expense record replaces it in your totals."
+        onClose={() => setStep("edit")}
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setStep("edit")} disabled={correctMutation.isPending}>
+              Back
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={correctMutation.isPending} aria-busy={correctMutation.isPending}>
+              {correctMutation.isPending && <span className="spinner" />}
+              Submit correction
+            </button>
+          </>
+        }
+      >
+        <ReviewRows changes={changes} reason={reason} />
+      </Modal>
+    );
   }
 
   return (
@@ -89,12 +138,11 @@ export function ExpenseCorrectModal({ isOpen, onClose, expense, orgId, token, on
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={correctMutation.isPending}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={correctMutation.isPending} aria-busy={correctMutation.isPending}>
-            {correctMutation.isPending && <span className="spinner" />}
-            Save correction
+          <button type="button" className="btn btn-primary" onClick={review}>
+            Review correction
           </button>
         </>
       }

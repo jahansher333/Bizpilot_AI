@@ -229,7 +229,14 @@ describe("Payments list (R7)", () => {
     expect(within(dialog).getByLabelText("Correct amount")).toHaveValue("10,000");
     fireEvent.change(within(dialog).getByLabelText("Correct amount"), { target: { value: "4000" } });
     fireEvent.change(within(dialog).getByLabelText(/reason/i), { target: { value: "Amount typed wrong" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save correction" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review correction" }));
+
+    const review = screen.getByRole("alertdialog", { name: "Correct payment PAY-0001?" });
+    const changes = within(review).getByLabelText("Changes");
+    expect(changes).toHaveTextContent("Amount10,000 → 4,000");
+    expect(changes).toHaveTextContent("ReasonAmount typed wrong");
+    expect(paymentsApi.correctPayment).not.toHaveBeenCalled();
+    fireEvent.click(within(review).getByRole("button", { name: "Submit correction" }));
     await waitFor(() =>
       expect(paymentsApi.correctPayment).toHaveBeenCalledWith(
         ORG,

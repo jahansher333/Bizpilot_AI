@@ -176,10 +176,18 @@ describe("Expenses (R7)", () => {
     const dialog = screen.getByRole("dialog", { name: "Correct expense" });
     expect(within(dialog).getByLabelText("Correct amount")).toHaveValue("8,950");
     fireEvent.change(within(dialog).getByLabelText("Correct amount"), { target: { value: "8590" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save correction" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review correction" }));
     expect(await within(dialog).findByRole("alert")).toHaveTextContent(/at least 3 characters/i);
     fireEvent.change(within(dialog).getByLabelText(/reason/i), { target: { value: "Bill was 8,590" } });
-    fireEvent.click(within(dialog).getByRole("button", { name: "Save correction" }));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Review correction" }));
+
+    const review = screen.getByRole("alertdialog", { name: "Correct this expense?" });
+    expect(within(review).getByLabelText("Changes")).toHaveTextContent("Amount8,950 → 8,590");
+    fireEvent.click(within(review).getByRole("button", { name: "Back" }));
+    expect(screen.getByRole("dialog", { name: "Correct expense" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Correct amount")).toHaveValue("8590");
+    fireEvent.click(screen.getByRole("button", { name: "Review correction" }));
+    fireEvent.click(within(screen.getByRole("alertdialog", { name: "Correct this expense?" })).getByRole("button", { name: "Submit correction" }));
     await waitFor(() =>
       expect(expensesApi.correctExpense).toHaveBeenCalledWith(
         ORG,

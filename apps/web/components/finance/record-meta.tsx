@@ -48,3 +48,31 @@ export function thisMonthRange(now: Date = new Date()): { start: string; end: st
   const last = new Date(y, m, 0).getDate();
   return { start: `${today.slice(0, 7)}-01`, end: `${today.slice(0, 7)}-${String(last).padStart(2, "0")}` };
 }
+
+/** Sensitive confirmation (design "33"): each changed field as before → after, then the reason. */
+export function ReviewRows({ changes, reason }: { changes: [string, React.ReactNode, React.ReactNode][]; reason: string }) {
+  const rows: [string, React.ReactNode][] = [
+    ...changes.map(([label, before, after]): [string, React.ReactNode] => [
+      label,
+      <>
+        <span className="struck">{before}</span> → <span className="strong">{after}</span>
+      </>,
+    ]),
+    ["Reason", reason.trim()],
+  ];
+  return (
+    <div className="well" style={{ padding: "4px 14px" }} aria-label="Changes">
+      {changes.length === 0 && (
+        <div className="t-body-sm secondary" style={{ padding: "8px 0", borderBottom: "1px solid var(--border)" }}>
+          No field changes — the replacement keeps the same details.
+        </div>
+      )}
+      {rows.map(([label, value], i) => (
+        <div key={label} className="t-body-sm" style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "8px 0", borderBottom: i < rows.length - 1 ? "1px solid var(--border)" : undefined }}>
+          <span className="secondary">{label}</span>
+          <span style={{ textAlign: "right" }}>{value}</span>
+        </div>
+      ))}
+    </div>
+  );
+}

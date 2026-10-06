@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef } from "react";
+import { OfflineNotice } from "@/components/ui/page-states";
 import { useRouter, usePathname } from "next/navigation";
 import { useAuth } from "@/hooks/use-auth";
 import { WorkspaceSidebar } from "@/components/shell/workspace-sidebar";
@@ -106,6 +107,7 @@ export function WorkspaceLayout({ orgId, children }: WorkspaceLayoutProps) {
       <div className="shell-main">
         <WorkspaceHeader orgId={orgId} onOpenMobileMenu={() => setIsMobileMenuOpen(true)} />
         <main id="main-content" tabIndex={-1} style={{ flex: 1, minWidth: 0, outline: "none" }}>
+          <OfflineNotice />
           {children}
         </main>
       </div>

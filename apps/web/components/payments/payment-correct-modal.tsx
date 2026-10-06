@@ -10,7 +10,7 @@ import { Icon } from "@/components/ui/icon";
 import { Money, formatMinor } from "@/components/ui/money";
 import { Modal } from "@/components/ui/modal";
 import { useToast } from "@/components/ui/toast";
-import { parseAmountMinor } from "@/components/finance/record-meta";
+import { ReviewRows, parseAmountMinor } from "@/components/finance/record-meta";
 
 interface PaymentCorrectModalProps {
   isOpen: boolean;
@@ -30,6 +30,7 @@ export function PaymentCorrectModal({ isOpen, onClose, payment, orgId, token, on
   const [reference, setReference] = useState("");
   const [reason, setReason] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [step, setStep] = useState<"edit" | "review">("edit");
   const idemKey = useRef(newIdempotencyKey());
 
   const { data: customers } = useCustomers(orgId, { status: "active", limit: 100 }, token);
@@ -47,18 +48,21 @@ export function PaymentCorrectModal({ isOpen, onClose, payment, orgId, token, on
     setReference(payment.external_reference ?? "");
     setReason("");
     setError(null);
+    setStep("edit");
     idemKey.current = newIdempotencyKey();
   }, [isOpen, payment]);
 
   if (!payment) return null;
 
-  async function submit() {
-    if (!payment) return;
-    setError(null);
+  const customerLabel = (id: string) => (id ? (customers?.items.find((c) => c.id === id)?.name ?? "Current customer") : "Not linked");
+  const orderLabel = (id: string) => (id ? (orders?.items.find((o) => o.id === id)?.order_number ?? "Current order") : "Not linked");
+
+  function payload() {
+    if (!payment) return null;
     const amountMinor = parseAmountMinor(amount);
     if (amountMinor === null) {
       setError("Enter an amount greater than 0.");
-      return;
+      return null;
     }
     const parsed = paymentCorrectSchema.safeParse({
       reason,
@@ -73,16 +77,62 @@ export function PaymentCorrectModal({ isOpen, onClose, payment, orgId, token, on
     });
     if (!parsed.success) {
       setError(parsed.error.issues[0].message);
-      return;
+      return null;
     }
+    return parsed.data;
+  }
+
+  function review() {
+    setError(null);
+    if (payload()) setStep("review");
+  }
+
+  async function submit() {
+    if (!payment) return;
+    const data = payload();
+    if (!data) return setStep("edit");
     try {
-      const replacement = await correctMutation.mutateAsync({ paymentId: payment.id, payload: parsed.data, idempotencyKey: `web-correct-${idemKey.current}` });
+      const replacement = await correctMutation.mutateAsync({ paymentId: payment.id, payload: data, idempotencyKey: `web-correct-${idemKey.current}` });
       notify({ title: `Payment ${payment.payment_number} corrected`, description: `Replacement ${replacement.payment_number} recorded.` });
       onCorrected?.(replacement);
       onClose();
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Couldn’t save the correction. Nothing was changed.");
+      setStep("edit");
     }
+  }
+
+  const changes: [string, React.ReactNode, React.ReactNode][] = [];
+  const newAmount = parseAmountMinor(amount);
+  if (newAmount !== null && newAmount !== payment.amount_minor) changes.push(["Amount", formatMinor(payment.amount_minor), formatMinor(newAmount)]);
+  if (channel !== payment.channel) changes.push(["Method", PAYMENT_CHANNEL_LABEL[payment.channel] ?? payment.channel, PAYMENT_CHANNEL_LABEL[channel]]);
+  if (customerId !== (payment.customer_id ?? "")) changes.push(["Customer", customerLabel(payment.customer_id ?? ""), customerLabel(customerId)]);
+  if (orderId !== (payment.order_id ?? "")) changes.push(["Related order", orderLabel(payment.order_id ?? ""), orderLabel(orderId)]);
+  if (reference.trim() !== (payment.external_reference ?? "")) changes.push(["Reference", payment.external_reference || "—", reference.trim() || "—"]);
+
+  if (step === "review") {
+    return (
+      <Modal
+        open={isOpen}
+        tone="warning"
+        title={`Correct payment ${payment.payment_number}?`}
+        description="The original stays visible, marked “Corrected”. A new payment record replaces it in your totals."
+        onClose={() => setStep("edit")}
+        footer={
+          <>
+            <button type="button" className="btn btn-secondary" onClick={() => setStep("edit")} disabled={correctMutation.isPending}>
+              Back
+            </button>
+            <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={correctMutation.isPending} aria-busy={correctMutation.isPending}>
+              {correctMutation.isPending && <span className="spinner" />}
+              Submit correction
+            </button>
+          </>
+        }
+      >
+        <ReviewRows changes={changes} reason={reason} />
+      </Modal>
+    );
   }
 
   return (
@@ -94,12 +144,11 @@ export function PaymentCorrectModal({ isOpen, onClose, payment, orgId, token, on
       onClose={onClose}
       footer={
         <>
-          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={correctMutation.isPending}>
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
             Cancel
           </button>
-          <button type="button" className="btn btn-primary" onClick={() => void submit()} disabled={correctMutation.isPending} aria-busy={correctMutation.isPending}>
-            {correctMutation.isPending && <span className="spinner" />}
-            Save correction
+          <button type="button" className="btn btn-primary" onClick={review}>
+            Review correction
           </button>
         </>
       }
