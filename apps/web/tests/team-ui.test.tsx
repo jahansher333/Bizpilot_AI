@@ -1,10 +1,12 @@
 import React from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { TeamView } from "@/components/team/team-view";
+import { SettingsView } from "@/components/settings/settings-view";
 import { PendingInvitations } from "@/components/team/pending-invitations";
 import * as orgApi from "@/lib/api/organizations";
+import * as authApi from "@/lib/api/auth";
 
 const pushMock = vi.fn();
 vi.mock("next/navigation", () => ({
@@ -13,14 +15,17 @@ vi.mock("next/navigation", () => ({
 }));
 
 const authState = {
-  user: { id: "user-owner", email: "owner@shop.pk", display_name: "Owner", status: "active" },
-  activeRole: "owner" as string | null,
+  user: { id: "user-owner", email: "owner@shop.pk", display_name: "Owner Khan", status: "active" },
+  token: "access-1",
+  organizations: [{ id: "org-1", display_name: "Khan Traders", currency_code: "PKR", timezone: "Asia/Karachi", status: "active", created_at: "", role: "owner" }],
   isAuthenticated: true,
+  logout: vi.fn().mockResolvedValue(undefined),
   refetchOrganizations: vi.fn().mockResolvedValue([]),
   selectOrg: vi.fn(),
 };
 vi.mock("@/hooks/use-auth", () => ({
   useAuth: () => authState,
+  useOptionalAuth: () => authState,
 }));
 
 vi.mock("@/lib/api/organizations", () => ({
@@ -31,136 +36,149 @@ vi.mock("@/lib/api/organizations", () => ({
   listMyInvitations: vi.fn(),
   acceptInvitation: vi.fn(),
 }));
+vi.mock("@/lib/api/auth", () => ({ logoutAllSessions: vi.fn() }));
 
+const member = (overrides: Record<string, unknown>) => ({
+  organization_id: "org-1",
+  created_at: "2026-10-01T00:00:00Z",
+  ...overrides,
+});
 const members = [
-  {
-    id: "m-owner",
-    organization_id: "org-1",
-    user_id: "user-owner",
-    role: "owner" as const,
-    status: "active",
-    created_at: "2026-10-01T00:00:00Z",
-    email: "owner@shop.pk",
-    display_name: "Owner",
-  },
-  {
-    id: "m-staff",
-    organization_id: "org-1",
-    user_id: "user-staff",
-    role: "staff" as const,
-    status: "active",
-    created_at: "2026-10-02T00:00:00Z",
-    email: "staff@shop.pk",
-    display_name: "Ali Staff",
-  },
-];
+  member({ id: "m-owner", user_id: "user-owner", role: "owner", status: "active", email: "owner@shop.pk", display_name: "Owner Khan" }),
+  member({ id: "m-staff", user_id: "user-staff", role: "staff", status: "active", email: "staff@shop.pk", display_name: "Ali Staff", created_at: "2026-10-02T00:00:00Z" }),
+  member({ id: "m-inv", user_id: "user-inv", role: "manager", status: "invited", email: "sana@shop.pk", display_name: "", created_at: "2026-10-03T00:00:00Z" }),
+] as any[];
+
+function setRole(role: string) {
+  authState.organizations = [{ ...authState.organizations[0], role }];
+}
 
 function renderWithClient(ui: React.ReactElement) {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>);
 }
 
-describe("Team management (FIX-006)", () => {
+describe("Team (R9)", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    authState.activeRole = "owner";
+    setRole("owner");
     vi.mocked(orgApi.listMembers).mockResolvedValue(members);
   });
 
-  it("lists members with roles and statuses for owners", async () => {
+  it("lists members with role, status, join date and marks you", async () => {
     renderWithClient(<TeamView orgId="org-1" />);
-
-    expect(await screen.findByText("Ali Staff")).toBeInTheDocument();
-    expect(screen.getByText("staff@shop.pk")).toBeInTheDocument();
-    expect(screen.getByText("(you)")).toBeInTheDocument();
-    expect(screen.getByLabelText("Role for staff@shop.pk")).toHaveValue("staff");
-    expect(orgApi.listMembers).toHaveBeenCalledWith("org-1", undefined);
+    await screen.findByLabelText("Role for Ali Staff");
+    const table = screen.getAllByRole("table")[0];
+    const rows = within(table).getAllByRole("row");
+    expect(within(rows[1]).getByText("(you)")).toBeInTheDocument();
+    expect(within(rows[1]).getByText("Owner")).toBeInTheDocument();
+    expect(within(rows[1]).queryByRole("button")).not.toBeInTheDocument();
+    expect(within(rows[2]).getByLabelText("Role for Ali Staff")).toHaveValue("staff");
+    expect(within(rows[2]).getByText("Active")).toBeInTheDocument();
+    expect(within(rows[3]).getByText("Invited")).toBeInTheDocument();
+    expect(within(rows[3]).getByRole("button", { name: "Revoke invitation for sana@shop.pk" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /resend/i })).not.toBeInTheDocument();
   });
 
-  it("does not offer revoke on the owner's own row", async () => {
+  it("shows the role table built from backend permissions", () => {
     renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
-    expect(screen.getAllByRole("button", { name: "Revoke" })).toHaveLength(1);
+    const card = screen.getByRole("region", { name: "What each role can do" });
+    const voidRow = within(card).getByText("Void orders, payments and expenses").closest("tr")!;
+    expect(within(voidRow).getAllByRole("cell").map((c) => c.textContent)).toEqual(["Void orders, payments and expenses", "Yes", "—", "—"]);
+    const teamRow = within(card).getByText("Invite members and change roles").closest("tr")!;
+    expect(within(teamRow).getAllByRole("cell").map((c) => c.textContent)).toEqual(["Invite members and change roles", "Yes", "—", "—"]);
   });
 
-  it("validates and sends an invitation", async () => {
-    vi.mocked(orgApi.inviteMember).mockResolvedValue({ ...members[1], status: "invited" });
+  it("invites a member with a chosen role", async () => {
+    vi.mocked(orgApi.inviteMember).mockResolvedValue(members[2]);
     renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
-
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "not-an-email" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
-    expect(await screen.findByRole("alert")).toHaveTextContent(/valid email/i);
-    expect(orgApi.inviteMember).not.toHaveBeenCalled();
-
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "new@shop.pk" } });
-    fireEvent.change(screen.getByLabelText("Role"), { target: { value: "manager" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
-
-    await waitFor(() =>
-      expect(orgApi.inviteMember).toHaveBeenCalledWith(
-        "org-1",
-        { email: "new@shop.pk", role: "manager" },
-        undefined
-      )
-    );
-    expect(await screen.findByRole("status")).toHaveTextContent("new@shop.pk");
+    fireEvent.click(screen.getByRole("button", { name: /invite member/i }));
+    const dialog = screen.getByRole("dialog", { name: "Invite member" });
+    const send = within(dialog).getByRole("button", { name: "Send invite" });
+    expect(send).toBeDisabled();
+    fireEvent.change(within(dialog).getByLabelText("Email"), { target: { value: "sana@shop.pk" } });
+    fireEvent.click(within(dialog).getByRole("radio", { name: /Manager/ }));
+    fireEvent.click(send);
+    await waitFor(() => expect(orgApi.inviteMember).toHaveBeenCalledWith("org-1", { email: "sana@shop.pk", role: "manager" }, undefined));
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
   });
 
   it("shows the server error when an invitation fails", async () => {
-    vi.mocked(orgApi.inviteMember).mockRejectedValue(
-      new Error("No active BizPilot account was found for this email.")
-    );
+    vi.mocked(orgApi.inviteMember).mockRejectedValue(new Error("Unable to invite this email address."));
     renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
-
-    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ghost@shop.pk" } });
-    fireEvent.click(screen.getByRole("button", { name: "Send invitation" }));
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("No active BizPilot account");
+    fireEvent.click(screen.getByRole("button", { name: /invite member/i }));
+    const dialog = screen.getByRole("dialog", { name: "Invite member" });
+    fireEvent.change(within(dialog).getByLabelText("Email"), { target: { value: "nobody@shop.pk" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send invite" }));
+    expect(await within(dialog).findByRole("alert")).toHaveTextContent("Unable to invite this email address.");
   });
 
-  it("changes a member role", async () => {
-    vi.mocked(orgApi.updateMemberRole).mockResolvedValue({ ...members[1], role: "manager" });
+  it("changes a member's role and surfaces last-owner protection errors", async () => {
+    vi.mocked(orgApi.updateMemberRole).mockResolvedValueOnce({ ...members[1], role: "manager" });
     renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
+    fireEvent.change(await screen.findByLabelText("Role for Ali Staff"), { target: { value: "manager" } });
+    await waitFor(() => expect(orgApi.updateMemberRole).toHaveBeenCalledWith("org-1", "m-staff", "manager", undefined));
 
-    fireEvent.change(screen.getByLabelText("Role for staff@shop.pk"), { target: { value: "manager" } });
-
-    await waitFor(() =>
-      expect(orgApi.updateMemberRole).toHaveBeenCalledWith("org-1", "m-staff", "manager", undefined)
-    );
+    vi.mocked(orgApi.updateMemberRole).mockRejectedValueOnce(new Error("Cannot demote the last owner"));
+    fireEvent.change(screen.getByLabelText("Role for Ali Staff"), { target: { value: "owner" } });
+    expect(await screen.findByRole("alert")).toHaveTextContent("Cannot demote the last owner");
   });
 
-  it("surfaces last-owner protection errors", async () => {
-    vi.mocked(orgApi.updateMemberRole).mockRejectedValue(
-      new Error("Cannot demote the last owner of the organization")
-    );
-    renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
-
-    fireEvent.change(screen.getByLabelText("Role for owner@shop.pk"), { target: { value: "staff" } });
-
-    expect(await screen.findByRole("alert")).toHaveTextContent("last owner");
-  });
-
-  it("revokes a member after confirmation", async () => {
-    vi.spyOn(window, "confirm").mockReturnValue(true);
+  it("removes a member after confirming in a dialog", async () => {
     vi.mocked(orgApi.revokeMember).mockResolvedValue({ ...members[1], status: "revoked" });
     renderWithClient(<TeamView orgId="org-1" />);
-    await screen.findByText("Ali Staff");
-
-    fireEvent.click(screen.getByRole("button", { name: "Revoke" }));
-
+    fireEvent.click(await screen.findByRole("button", { name: "Remove Ali Staff" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Remove Ali Staff?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Remove access" }));
     await waitFor(() => expect(orgApi.revokeMember).toHaveBeenCalledWith("org-1", "m-staff", undefined));
   });
 
-  it("blocks non-owners and does not load members", () => {
-    authState.activeRole = "manager";
+  it("uses the role in this workspace: Managers see a restricted page and no members are loaded", () => {
+    setRole("manager");
     renderWithClient(<TeamView orgId="org-1" />);
-
-    expect(screen.getByRole("alert")).toHaveTextContent("Only workspace owners");
+    expect(screen.getByRole("heading", { name: "Only Owners can manage the team" })).toBeInTheDocument();
     expect(orgApi.listMembers).not.toHaveBeenCalled();
+  });
+});
+
+describe("Settings (R9)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    setRole("owner");
+  });
+
+  it("shows the business profile read-only to Owners and Managers", () => {
+    renderWithClient(<SettingsView orgId="org-1" />);
+    expect(screen.getByLabelText("Business name")).toHaveValue("Khan Traders");
+    expect(screen.getByLabelText("Business name")).toHaveAttribute("readonly");
+    expect(screen.getByText("PKR · Pakistani Rupee")).toBeInTheDocument();
+    expect(screen.getByText("Asia/Karachi")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /team/i })).toHaveAttribute("href", "/workspace/org-1/team");
+    expect(screen.queryByText(/danger zone/i)).not.toBeInTheDocument();
+  });
+
+  it("hides the business profile from Staff but keeps security and account", () => {
+    setRole("staff");
+    renderWithClient(<SettingsView orgId="org-1" />);
+    const nav = screen.getByRole("navigation", { name: "Settings sections" });
+    expect(within(nav).queryByRole("button", { name: "Business profile" })).not.toBeInTheDocument();
+    expect(within(nav).queryByRole("link", { name: /team/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Security" })).toBeInTheDocument();
+    fireEvent.click(within(nav).getByRole("button", { name: "Your account" }));
+    expect(screen.getByLabelText("Email")).toHaveValue("owner@shop.pk");
+    expect(screen.getByText("Staff")).toBeInTheDocument();
+  });
+
+  it("signs out of all devices after confirmation", async () => {
+    vi.mocked(authApi.logoutAllSessions).mockResolvedValue({ message: "ok" } as any);
+    renderWithClient(<SettingsView orgId="org-1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Security" }));
+    expect(screen.getByRole("link", { name: "Reset password" })).toHaveAttribute("href", "/forgot-password");
+    fireEvent.click(screen.getByRole("button", { name: "Sign out of all devices" }));
+    const dialog = screen.getByRole("alertdialog", { name: "Sign out of all devices?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Sign out everywhere" }));
+    await waitFor(() => expect(authApi.logoutAllSessions).toHaveBeenCalledWith("access-1"));
+    await waitFor(() => expect(authState.logout).toHaveBeenCalled());
   });
 });
 

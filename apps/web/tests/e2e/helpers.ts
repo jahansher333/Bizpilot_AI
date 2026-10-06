@@ -85,6 +85,18 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
     });
   });
 
+  // Mock Team members (Owner-only on the backend)
+  await page.route(`**/api/organizations/${TEST_ORG_ID}/members*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'm-1', organization_id: TEST_ORG_ID, user_id: TEST_USER_ID, role: 'owner', status: 'active', created_at: '2026-09-28T00:00:00Z', email: 'owner@lahorestore.pk', display_name: 'Haji Muhammad' },
+        { id: 'm-2', organization_id: TEST_ORG_ID, user_id: 'u-2', role: 'staff', status: 'active', created_at: '2026-09-30T00:00:00Z', email: 'counter@lahorestore.pk', display_name: 'Bilal Counter' },
+      ]),
+    });
+  });
+
   // Mock Dashboard (DashboardSummary shape; Staff gets no expenses or net cash)
   await page.route(`**/api/organizations/${TEST_ORG_ID}/dashboard*`, async (route) => {
     const today = new Date().toISOString().slice(0, 10);

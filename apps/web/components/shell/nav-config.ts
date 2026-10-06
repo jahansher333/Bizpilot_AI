@@ -46,9 +46,13 @@ export function buildNavGroups(orgId: string, role: OrgRole): NavGroup[] {
     },
   ];
 
-  if (role === "owner") {
-    groups.push({ label: "Management", items: [{ key: "team", label: "Team", href: `${base}/team`, icon: "team" }] });
-  }
+  groups.push({
+    label: "Management",
+    items: [
+      ...(role === "owner" ? [{ key: "team", label: "Team", href: `${base}/team`, icon: "team" as const }] : []),
+      { key: "settings", label: "Settings", href: `${base}/settings`, icon: "settings" },
+    ],
+  });
   return groups;
 }
 
@@ -61,6 +65,7 @@ const SECTION_OF: Record<string, { section: string; page: string }> = {
   expenses: { section: "Finance", page: "Expenses" },
   assistant: { section: "Intelligence", page: "BizPilot AI" },
   team: { section: "Management", page: "Team" },
+  settings: { section: "Management", page: "Settings" },
 };
 
 /** Active nav key and breadcrumb for a workspace pathname. */

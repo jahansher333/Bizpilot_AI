@@ -76,13 +76,14 @@ describe("Shared Application Shell & Navigation (UX-002)", () => {
       expect(screen.getByRole("link", { name: /^products/i })).not.toHaveAttribute("aria-current");
     });
 
-    it("hides Expenses and Team for Staff, and Team for Managers", () => {
+    it("hides Expenses and Team for Staff, and Team for Managers, but shows Settings", () => {
       mockAuth("staff");
       const { unmount } = render(<WorkspaceSidebar orgId="org-123" />);
       expect(screen.getByRole("link", { name: /^payments/i })).toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^expenses/i })).not.toBeInTheDocument();
       expect(screen.queryByRole("link", { name: /^team/i })).not.toBeInTheDocument();
-      expect(screen.queryByText("Management")).not.toBeInTheDocument();
+      // Settings (security, your account) is for every role; Team is Owner-only (R9).
+      expect(screen.getByRole("link", { name: /^settings/i })).toHaveAttribute("href", "/workspace/org-123/settings");
       unmount();
 
       vi.restoreAllMocks();

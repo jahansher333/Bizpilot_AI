@@ -112,6 +112,10 @@ export function WorkspaceSidebar({ orgId, onNavigate, collapsed = false, onToggl
               </div>
             </div>
             <div className="menu-sep" />
+            <Link className="menu-item" role="menuitem" href={`/workspace/${orgId}/settings`} onClick={onNavigate}>
+              <Icon name="settings" />
+              Settings
+            </Link>
             <Link className="menu-item" role="menuitem" href="/workspaces" onClick={onNavigate}>
               <Icon name="updown" />
               Switch workspace
