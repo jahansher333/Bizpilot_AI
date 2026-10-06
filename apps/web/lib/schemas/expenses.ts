@@ -16,6 +16,15 @@ export const expensePaymentMethodEnum = z.enum([
 ]);
 export type ExpensePaymentMethod = z.infer<typeof expensePaymentMethodEnum>;
 
+export const EXPENSE_METHOD_LABEL: Record<string, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank transfer",
+  cheque: "Cheque",
+  mobile_wallet: "Mobile wallet",
+  digital: "Card / online",
+  other: "Other",
+};
+
 export const expenseCategoryCreateSchema = z.object({
   name: z.string().trim().min(1, "Category name is required").max(100, "Category name cannot exceed 100 characters"),
 });

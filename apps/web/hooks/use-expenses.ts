@@ -20,6 +20,12 @@ import {
   ExpenseVoidInput,
 } from "@/lib/schemas/expenses";
 
+/** Expenses change the dashboard's expenses and net cash, so refresh it too. */
+function invalidateExpenseEffects(queryClient: ReturnType<typeof useQueryClient>, orgId: string) {
+  queryClient.invalidateQueries({ queryKey: expenseQueryKeys.all(orgId) });
+  queryClient.invalidateQueries({ queryKey: ["dashboard", orgId] });
+}
+
 export const expenseCategoryQueryKeys = {
   all: (orgId: string) => ["expense-categories", orgId] as const,
   lists: (orgId: string) => [...expenseCategoryQueryKeys.all(orgId), "list"] as const,
@@ -141,7 +147,7 @@ export function useCreateExpense(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => createExpense(orgId, payload, token, idempotencyKey),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: expenseQueryKeys.all(orgId) });
+      invalidateExpenseEffects(queryClient, orgId);
     },
   });
 }
@@ -159,7 +165,7 @@ export function useVoidExpense(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => voidExpense(orgId, expenseId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: expenseQueryKeys.all(orgId) });
+      invalidateExpenseEffects(queryClient, orgId);
       queryClient.invalidateQueries({
         queryKey: expenseQueryKeys.detail(orgId, variables.expenseId),
       });
@@ -180,7 +186,7 @@ export function useCorrectExpense(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => correctExpense(orgId, expenseId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: expenseQueryKeys.all(orgId) });
+      invalidateExpenseEffects(queryClient, orgId);
       queryClient.invalidateQueries({
         queryKey: expenseQueryKeys.detail(orgId, variables.expenseId),
       });

@@ -352,7 +352,7 @@ export function OrderPos({ orgId, token, initialCustomerId }: OrderPosProps) {
         footer={
           done && (
             <>
-              <Link className="btn btn-secondary" href={`${base}/payments`}>
+              <Link className="btn btn-secondary" href={`${base}/payments?record=1&orderId=${done.id}${done.customer_id ? `&customerId=${done.customer_id}` : ""}`}>
                 Record payment
               </Link>
               <Link className="btn btn-secondary" href={`${base}/orders/${done.id}`}>

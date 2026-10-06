@@ -121,7 +121,7 @@ export function OrderDetail({ orgId, orderId, userRole = "staff", token, initial
             </button>
           )}
           {done && (
-            <Link className="btn btn-primary" href={`${base}/payments`}>
+            <Link className="btn btn-primary" href={`${base}/payments?record=1&orderId=${o.id}${o.customer_id ? `&customerId=${o.customer_id}` : ""}`}>
               Record payment
             </Link>
           )}

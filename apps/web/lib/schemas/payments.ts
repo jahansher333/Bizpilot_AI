@@ -1,13 +1,15 @@
 import { z } from "zod";
 
-export const paymentChannelEnum = z.enum([
-  "cash",
-  "bank_transfer",
-  "cheque",
-  "mobile_wallet",
-  "other",
-]);
+/** Must match the backend PaymentChannel enum; anything else is rejected with 422. */
+export const paymentChannelEnum = z.enum(["cash", "bank_transfer", "digital", "other"]);
 export type PaymentChannel = z.infer<typeof paymentChannelEnum>;
+
+export const PAYMENT_CHANNEL_LABEL: Record<string, string> = {
+  cash: "Cash",
+  bank_transfer: "Bank transfer",
+  digital: "Digital wallet",
+  other: "Other",
+};
 
 export const paymentStatusEnum = z.enum(["active", "voided", "corrected"]);
 export type PaymentStatus = z.infer<typeof paymentStatusEnum>;

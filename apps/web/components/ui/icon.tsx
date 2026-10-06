@@ -144,6 +144,12 @@ const PATHS = {
     </>
   ),
   minus: <path d="M5 12h14" />,
+  calendar: (
+    <>
+      <rect x="3.5" y="5" width="17" height="15" rx="2" />
+      <path d="M3.5 10h17M8 3v4M16 3v4" />
+    </>
+  ),
   edit: <path d="M4 20h4L19 9l-4-4L4 16z" />,
   ban: (
     <>

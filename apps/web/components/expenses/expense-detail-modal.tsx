@@ -1,213 +1,110 @@
 "use client";
 
 import React from "react";
-import { formatMoney, Expense, ExpenseCategory } from "@/lib/schemas/expenses";
+import { useExpense } from "@/hooks/use-expenses";
+import { EXPENSE_METHOD_LABEL, Expense } from "@/lib/schemas/expenses";
+import { Icon } from "@/components/ui/icon";
+import { Money } from "@/components/ui/money";
+import { Modal } from "@/components/ui/modal";
+import { RecordStatusBadge } from "@/components/finance/record-meta";
+import { orderWhen } from "@/components/orders/order-meta";
 
 interface ExpenseDetailModalProps {
-  isOpen: boolean;
-  onClose: () => void;
   expense: Expense | null;
-  categories?: ExpenseCategory[];
-  onOpenVoid?: (expense: Expense) => void;
-  onOpenCorrect?: (expense: Expense) => void;
-  canVoid?: boolean;
-  canCorrect?: boolean;
+  onClose: () => void;
+  orgId: string;
+  token?: string;
+  categoryName: (id?: string | null) => string;
+  canCorrect: boolean;
+  canVoid: boolean;
+  onCorrect: (e: Expense) => void;
+  onVoid: (e: Expense) => void;
+  onOpenExpense: (e: Expense) => void;
 }
 
-export function ExpenseDetailModal({
-  isOpen,
-  onClose,
-  expense,
-  categories = [],
-  onOpenVoid,
-  onOpenCorrect,
-  canVoid = false,
-  canCorrect = false,
-}: ExpenseDetailModalProps) {
-  if (!isOpen || !expense) return null;
+export function ExpenseDetailModal({ expense, onClose, orgId, token, categoryName, canCorrect, canVoid, onCorrect, onVoid, onOpenExpense }: ExpenseDetailModalProps) {
+  const e = expense;
+  const replacement = useExpense(orgId, e?.replaced_by_expense_id ?? "", token);
+  const original = useExpense(orgId, e?.corrects_expense_id ?? "", token);
+  if (!e) return null;
+  const active = e.status === "active";
 
-  const categoryMap = new Map(categories.map((c) => [c.id, c.name]));
-  const categoryName = expense.expense_category_id
-    ? categoryMap.get(expense.expense_category_id) || "Uncategorized"
-    : "Uncategorized";
-
-  const getStatusBadge = (status: string) => {
-    switch (status) {
-      case "active":
-        return "bg-green-100 text-green-800 border-green-200";
-      case "voided":
-        return "bg-red-100 text-red-800 border-red-200";
-      case "corrected":
-        return "bg-amber-100 text-amber-800 border-amber-200";
-      default:
-        return "bg-gray-100 text-gray-800 border-gray-200";
-    }
-  };
-
-  const formatMethod = (m: string) => {
-    switch (m) {
-      case "cash":
-        return "Cash";
-      case "bank_transfer":
-        return "Bank Transfer";
-      case "cheque":
-        return "Cheque";
-      case "mobile_wallet":
-        return "Mobile Wallet";
-      case "digital":
-        return "Digital";
-      default:
-        return m;
-    }
-  };
+  const rows: [string, React.ReactNode][] = [
+    ["Category", categoryName(e.expense_category_id)],
+    ...(e.payee ? ([["Paid to", e.payee]] as [string, React.ReactNode][]) : []),
+    ["Paid by", EXPENSE_METHOD_LABEL[e.payment_method] ?? e.payment_method],
+    ["Date", orderWhen(e.occurred_at)],
+  ];
 
   return (
-    <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="expense-detail-modal-title"
-    >
-      <div className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-lg bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between border-b pb-3">
-          <div>
-            <h2 id="expense-detail-modal-title" className="text-lg font-semibold text-gray-900">
-              Expense Details
-            </h2>
-            <p className="text-xs text-gray-500 font-mono">{expense.id}</p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-600"
-            aria-label="Close"
-          >
-            ✕
-          </button>
-        </div>
-
-        <div className="mt-4 space-y-4 text-sm">
-          {/* Status & Amount */}
-          <div className="flex items-center justify-between rounded-lg bg-gray-50 p-3 border border-gray-100">
-            <div>
-              <span className="text-xs text-gray-500">Recorded Amount</span>
-              <p className="text-xl font-bold text-gray-900">
-                {formatMoney(expense.amount_minor, expense.currency_code)}
-              </p>
-            </div>
-            <span
-              className={`inline-flex rounded-full border px-2.5 py-0.5 text-xs font-semibold capitalize ${getStatusBadge(
-                expense.status
-              )}`}
-            >
-              {expense.status}
-            </span>
-          </div>
-
-          {/* Info Grid */}
-          <div className="grid grid-cols-2 gap-4">
-            <div>
-              <span className="text-xs font-medium text-gray-500">Category</span>
-              <p className="font-medium text-gray-900">{categoryName}</p>
-            </div>
-
-            <div>
-              <span className="text-xs font-medium text-gray-500">Payment Method</span>
-              <p className="font-medium text-gray-900 capitalize">
-                {formatMethod(expense.payment_method)}
-              </p>
-            </div>
-
-            <div>
-              <span className="text-xs font-medium text-gray-500">Payee</span>
-              <p className="text-gray-900">{expense.payee || "—"}</p>
-            </div>
-
-            <div>
-              <span className="text-xs font-medium text-gray-500">Date</span>
-              <p className="text-gray-900 text-xs">
-                {new Date(expense.occurred_at).toLocaleString()}
-              </p>
-            </div>
-          </div>
-
-          {/* Description */}
-          {expense.description && (
-            <div>
-              <span className="text-xs font-medium text-gray-500">Description / Memo</span>
-              <p className="mt-1 rounded bg-gray-50 p-2 text-xs text-gray-700 whitespace-pre-wrap">
-                {expense.description}
-              </p>
-            </div>
-          )}
-
-          {/* Replacement / Void Status Details */}
-          {expense.status === "voided" && (
-            <div className="rounded-md border border-red-200 bg-red-50 p-3 text-xs text-red-800">
-              <span className="font-semibold">Voided Record:</span> This expense was voided
-              {expense.voided_at && ` on ${new Date(expense.voided_at).toLocaleString()}`} and is
-              excluded from active operating totals.
-            </div>
-          )}
-
-          {expense.status === "corrected" && (
-            <div className="rounded-md border border-amber-200 bg-amber-50 p-3 text-xs text-amber-800 space-y-1">
-              <p className="font-semibold">Corrected Record:</p>
-              <p>This expense was replaced by a corrective expense record.</p>
-              {expense.replaced_by_expense_id && (
-                <p className="font-mono text-xs">
-                  Replacement ID: {expense.replaced_by_expense_id}
-                </p>
-              )}
-            </div>
-          )}
-
-          {expense.corrects_expense_id && (
-            <div className="rounded-md border border-blue-200 bg-blue-50 p-3 text-xs text-blue-800 space-y-1">
-              <p className="font-semibold">Corrective Adjustment:</p>
-              <p>This expense replaces a previously corrected expense record.</p>
-              <p className="font-mono text-xs">Previous ID: {expense.corrects_expense_id}</p>
-            </div>
-          )}
-        </div>
-
-        {/* Modal Footer */}
-        <div className="mt-6 flex justify-between border-t pt-4">
-          <div className="flex gap-2">
-            {expense.status === "active" && canVoid && onOpenVoid && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenVoid(expense);
-                }}
-                className="rounded-md border border-red-300 bg-white px-3 py-1.5 text-xs font-medium text-red-700 hover:bg-red-50 focus:outline-none"
-              >
-                Void Expense
+    <Modal
+      open={!!e}
+      title={e.description || e.payee || "Expense"}
+      onClose={onClose}
+      footer={
+        active && (canCorrect || canVoid) ? (
+          <>
+            {canVoid && (
+              <button type="button" className="btn btn-danger-outline" onClick={() => onVoid(e)}>
+                <Icon name="ban" />
+                Void expense…
               </button>
             )}
-            {expense.status === "active" && canCorrect && onOpenCorrect && (
-              <button
-                type="button"
-                onClick={() => {
-                  onClose();
-                  onOpenCorrect(expense);
-                }}
-                className="rounded-md border border-amber-300 bg-white px-3 py-1.5 text-xs font-medium text-amber-700 hover:bg-amber-50 focus:outline-none"
-              >
-                Correct Expense
+            {canCorrect && (
+              <button type="button" className="btn btn-secondary" onClick={() => onCorrect(e)}>
+                <Icon name="edit" />
+                Correct expense
               </button>
             )}
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
-          >
+          </>
+        ) : (
+          <button type="button" className="btn btn-secondary" onClick={onClose}>
             Close
           </button>
-        </div>
+        )
+      }
+    >
+      <div style={{ display: "flex", flexDirection: "column", gap: 6 }}>
+        <RecordStatusBadge status={e.status} />
+        <Money amountMinor={e.amount_minor} currency={e.currency_code} className={active ? "" : "struck"} style={{ font: "600 32px/40px var(--font)", letterSpacing: "-0.02em" }} />
       </div>
-    </div>
+      {e.status === "corrected" && (
+        <div className="alert a-warning">
+          <Icon name="edit" />
+          <span style={{ flex: 1 }}>Corrected. It no longer counts; the replacement holds the right details.</span>
+          {replacement.data && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenExpense(replacement.data!)}>
+              Open replacement
+            </button>
+          )}
+        </div>
+      )}
+      {e.status === "voided" && (
+        <div className="alert a-danger">
+          <Icon name="ban" />
+          <span>Voided{e.voided_at ? ` ${orderWhen(e.voided_at).replace(/^(Today|Yesterday)/, (m) => m.toLowerCase())}` : ""}. Kept for your records; it doesn’t count toward expenses or net cash.</span>
+        </div>
+      )}
+      {e.corrects_expense_id && (
+        <div className="alert a-neutral">
+          <Icon name="info" />
+          <span style={{ flex: 1 }}>Replaces an earlier expense, which is kept and marked Corrected.</span>
+          {original.data && (
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => onOpenExpense(original.data!)}>
+              Open original
+            </button>
+          )}
+        </div>
+      )}
+      <dl className="well" style={{ margin: 0, padding: "4px 16px" }}>
+        {rows.map(([label, value], i) => (
+          <div key={label} className="t-body-sm" style={{ display: "flex", justifyContent: "space-between", gap: 12, padding: "10px 0", borderBottom: i < rows.length - 1 ? "1px solid var(--border)" : undefined }}>
+            <dt className="secondary">{label}</dt>
+            <dd style={{ margin: 0, textAlign: "right" }}>{value}</dd>
+          </div>
+        ))}
+      </dl>
+      {active && !canCorrect && <p className="t-caption">Only Owners and Managers can correct expenses, and only Owners can void them.</p>}
+    </Modal>
   );
 }

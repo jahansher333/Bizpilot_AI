@@ -15,6 +15,13 @@ import {
   PaymentVoidInput,
 } from "@/lib/schemas/payments";
 
+/** Payments change today's collections and customer balances, so refresh those views too. */
+function invalidatePaymentEffects(queryClient: ReturnType<typeof useQueryClient>, orgId: string) {
+  queryClient.invalidateQueries({ queryKey: paymentQueryKeys.all(orgId) });
+  queryClient.invalidateQueries({ queryKey: ["dashboard", orgId] });
+  queryClient.invalidateQueries({ queryKey: ["customers", orgId, "balances"] });
+}
+
 export const paymentQueryKeys = {
   all: (orgId: string) => ["payments", orgId] as const,
   lists: (orgId: string) => [...paymentQueryKeys.all(orgId), "list"] as const,
@@ -88,9 +95,7 @@ export function useCreatePayment(orgId: string, token?: string) {
       payload: PaymentCreateInput;
       idempotencyKey?: string;
     }) => createPayment(orgId, payload, token, idempotencyKey),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: paymentQueryKeys.all(orgId) });
-    },
+    onSuccess: () => invalidatePaymentEffects(queryClient, orgId),
   });
 }
 
@@ -107,7 +112,7 @@ export function useVoidPayment(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => voidPayment(orgId, paymentId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: paymentQueryKeys.all(orgId) });
+      invalidatePaymentEffects(queryClient, orgId);
       queryClient.invalidateQueries({
         queryKey: paymentQueryKeys.detail(orgId, variables.paymentId),
       });
@@ -128,7 +133,7 @@ export function useCorrectPayment(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => correctPayment(orgId, paymentId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: paymentQueryKeys.all(orgId) });
+      invalidatePaymentEffects(queryClient, orgId);
       queryClient.invalidateQueries({
         queryKey: paymentQueryKeys.detail(orgId, variables.paymentId),
       });

@@ -130,7 +130,7 @@ export function CustomerDetail({ orgId, customerId, userRole = "staff", token }:
           )}
           {c.status === "active" && (
             <>
-              <Link className="btn btn-secondary" href={`${base}/payments?customerId=${c.id}`}>
+              <Link className="btn btn-secondary" href={`${base}/payments?record=1&customerId=${c.id}`}>
                 Record payment
               </Link>
               <Link className="btn btn-primary" href={`${base}/orders/new?customerId=${c.id}`}>
