@@ -45,7 +45,7 @@ export async function sendAssistantQuery(
   token?: string
 ): Promise<AssistantResponse> {
   return request<AssistantResponse>(
-    `/api/v1/organizations/${orgId}/ai/chat`,
+    `/api/organizations/${orgId}/ai/chat`,
     {
       method: "POST",
       body: JSON.stringify(payload),
