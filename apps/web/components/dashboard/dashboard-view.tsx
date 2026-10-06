@@ -141,7 +141,7 @@ export function DashboardView({ orgId, userRole = "owner", token }: DashboardVie
               </button>
             ))}
           </div>
-          <Link className="btn btn-primary" href={`${base}/orders`}>
+          <Link className="btn btn-primary" href={`${base}/orders/new`}>
             <Icon name="plus" />
             New order
           </Link>

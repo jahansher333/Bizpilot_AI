@@ -14,6 +14,17 @@ import {
   OrderVoidInput,
 } from "@/lib/schemas/orders";
 
+/**
+ * Orders move stock, sales and customer balances, so every write refreshes those views too.
+ * Inventory keys start with "inventory" (not the org id), so match on that prefix.
+ */
+function invalidateOrderEffects(queryClient: ReturnType<typeof useQueryClient>, orgId: string) {
+  queryClient.invalidateQueries({ queryKey: orderQueryKeys.lists(orgId) });
+  queryClient.invalidateQueries({ queryKey: ["inventory"] });
+  queryClient.invalidateQueries({ queryKey: ["dashboard", orgId] });
+  queryClient.invalidateQueries({ queryKey: ["customers", orgId, "balances"] });
+}
+
 export const orderQueryKeys = {
   all: (orgId: string) => ["orders", orgId] as const,
   lists: (orgId: string) => [...orderQueryKeys.all(orgId), "list"] as const,
@@ -62,11 +73,7 @@ export function useCreateOrder(orgId: string, token?: string) {
       payload: OrderCreateInput;
       idempotencyKey?: string;
     }) => createOrder(orgId, payload, token, idempotencyKey),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: orderQueryKeys.lists(orgId) });
-      // Invalidate inventory balances as stock has changed
-      queryClient.invalidateQueries({ queryKey: ["inventory", orgId] });
-    },
+    onSuccess: () => invalidateOrderEffects(queryClient, orgId),
   });
 }
 
@@ -83,12 +90,8 @@ export function useVoidOrder(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => voidOrder(orgId, orderId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: orderQueryKeys.lists(orgId) });
-      queryClient.invalidateQueries({
-        queryKey: orderQueryKeys.detail(orgId, variables.orderId),
-      });
-      // Invalidate inventory balances as stock has been restored
-      queryClient.invalidateQueries({ queryKey: ["inventory", orgId] });
+      invalidateOrderEffects(queryClient, orgId);
+      queryClient.invalidateQueries({ queryKey: orderQueryKeys.detail(orgId, variables.orderId) });
     },
   });
 }
@@ -106,12 +109,8 @@ export function useCorrectOrder(orgId: string, token?: string) {
       idempotencyKey?: string;
     }) => correctOrder(orgId, orderId, payload, token, idempotencyKey),
     onSuccess: (_, variables) => {
-      queryClient.invalidateQueries({ queryKey: orderQueryKeys.lists(orgId) });
-      queryClient.invalidateQueries({
-        queryKey: orderQueryKeys.detail(orgId, variables.orderId),
-      });
-      // Invalidate inventory balances as stock has changed
-      queryClient.invalidateQueries({ queryKey: ["inventory", orgId] });
+      invalidateOrderEffects(queryClient, orgId);
+      queryClient.invalidateQueries({ queryKey: orderQueryKeys.detail(orgId, variables.orderId) });
     },
   });
 }

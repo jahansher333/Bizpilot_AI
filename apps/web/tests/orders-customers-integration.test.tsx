@@ -5,7 +5,7 @@ import React from "react";
 
 import { CustomerView } from "@/components/customers/customer-view";
 import { OrdersView } from "@/components/orders/orders-view";
-import { OrderCreateModal } from "@/components/orders/order-create-modal";
+import { OrderPos } from "@/components/orders/order-pos";
 import { Order } from "@/lib/schemas/orders";
 import * as customersApi from "@/lib/api/customers";
 import * as ordersApi from "@/lib/api/orders";
@@ -27,6 +27,15 @@ vi.mock("@/lib/api/orders", () => ({
 
 vi.mock("@/lib/api/catalog", () => ({
   listProducts: vi.fn(),
+  listCategories: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 }),
+}));
+
+vi.mock("@/lib/api/inventory", () => ({
+  fetchBalances: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 }),
+}));
+
+vi.mock("@/lib/api/dashboard", () => ({
+  getDashboard: vi.fn().mockResolvedValue({ sales: { order_count: 0, total_sales_minor: 0, currency_code: "PKR" } }),
 }));
 
 function createTestQueryClient() {
@@ -130,43 +139,25 @@ describe("UX-004: Customer & Order Workflow Integration", () => {
   it("renders the customer directory with a per-customer New order link (R5)", async () => {
     renderWithQueryClient(<CustomerView orgId="org-1" userRole="owner" />);
     await waitFor(() => expect(screen.getAllByText("Ahmed Trading").length).toBeGreaterThan(0));
-    expect(screen.getByRole("link", { name: /new order for ahmed trading/i })).toHaveAttribute("href", "/workspace/org-1/orders?customerId=cust-1");
+    expect(screen.getByRole("link", { name: /new order for ahmed trading/i })).toHaveAttribute("href", "/workspace/org-1/orders/new?customerId=cust-1");
   });
 
-  it("renders orders view with customer filter notice and navigation link back to customers directory", async () => {
-    renderWithQueryClient(
-      <OrdersView orgId="org-1" userRole="owner" initialCustomerId="cust-1" />
-    );
+  it("filters the orders list to one customer and offers a way back to all orders", async () => {
+    renderWithQueryClient(<OrdersView orgId="org-1" userRole="owner" initialCustomerId="cust-1" />);
 
-    // Filter banner is displayed
-    await waitFor(() => {
-      expect(screen.getByText(/filtering orders for customer:/i)).toBeInTheDocument();
-      expect(screen.getByText("cust-1")).toBeInTheDocument();
-    });
-
-    // Link back to Customers Directory exists
-    const customersLink = screen.getByRole("link", { name: /customers directory/i });
-    expect(customersLink).toHaveAttribute("href", "/workspace/org-1/customers");
-
-    // Link to clear filter exists
-    const clearFilterLink = screen.getByRole("link", { name: /show all orders/i });
-    expect(clearFilterLink).toHaveAttribute("href", "/workspace/org-1/orders");
+    await waitFor(() => expect(screen.getByText("Ahmed Trading", { selector: "b" })).toBeInTheDocument());
+    expect(ordersApi.listOrders).toHaveBeenCalledWith("org-1", expect.objectContaining({ customerId: "cust-1" }), undefined);
+    expect(screen.getByRole("link", { name: /show all orders/i })).toHaveAttribute("href", "/workspace/org-1/orders");
+    expect(screen.getByRole("link", { name: /new order/i })).toHaveAttribute("href", "/workspace/org-1/orders/new?customerId=cust-1");
   });
 
-  it("pre-selects the customer in OrderCreateModal when initialCustomerId is supplied", async () => {
-    renderWithQueryClient(
-      <OrderCreateModal
-        isOpen={true}
-        onClose={vi.fn()}
-        orgId="org-1"
-        initialCustomerId="cust-1"
-      />
-    );
+  it("pre-selects the customer in the POS when opened from a customer", async () => {
+    renderWithQueryClient(<OrderPos orgId="org-1" initialCustomerId="cust-1" />);
 
     await waitFor(() => {
-      expect(screen.getByText("New Order Entry")).toBeInTheDocument();
-      const customerSelect = screen.getByLabelText(/customer/i) as HTMLSelectElement;
+      const customerSelect = screen.getByLabelText("Customer") as HTMLSelectElement;
       expect(customerSelect.value).toBe("cust-1");
     });
+    expect(screen.getByRole("heading", { name: "New order" })).toBeInTheDocument();
   });
 });

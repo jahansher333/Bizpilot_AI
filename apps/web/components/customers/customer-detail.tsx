@@ -133,7 +133,7 @@ export function CustomerDetail({ orgId, customerId, userRole = "staff", token }:
               <Link className="btn btn-secondary" href={`${base}/payments?customerId=${c.id}`}>
                 Record payment
               </Link>
-              <Link className="btn btn-primary" href={`${base}/orders?customerId=${c.id}`}>
+              <Link className="btn btn-primary" href={`${base}/orders/new?customerId=${c.id}`}>
                 <Icon name="plus" />
                 Create order
               </Link>
@@ -278,7 +278,7 @@ export function CustomerDetail({ orgId, customerId, userRole = "staff", token }:
                 {orderItems.map((o) => (
                   <tr key={o.id} className={o.status === "active" ? "" : "is-void"}>
                     <td>
-                      <Link className={`link mono${o.status === "active" ? "" : " struck"}`} href={`${base}/orders`}>
+                      <Link className={`link mono${o.status === "active" ? "" : " struck"}`} href={`${base}/orders/${o.id}`}>
                         {o.order_number}
                       </Link>
                     </td>

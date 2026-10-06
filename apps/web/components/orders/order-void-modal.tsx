@@ -1,8 +1,10 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { Order, orderVoidSchema } from "@/lib/schemas/orders";
 import { useVoidOrder } from "@/hooks/use-orders";
+import { Modal } from "@/components/ui/modal";
+import { useToast } from "@/components/ui/toast";
 
 interface OrderVoidModalProps {
   isOpen: boolean;
@@ -12,104 +14,88 @@ interface OrderVoidModalProps {
   token?: string;
 }
 
-export function OrderVoidModal({
-  isOpen,
-  onClose,
-  order,
-  orgId,
-  token,
-}: OrderVoidModalProps) {
+/** Design "33 · Confirmation flows": destructive, focus starts on the safe button. Owner-only (backend enforced). */
+export function OrderVoidModal({ isOpen, onClose, order, orgId, token }: OrderVoidModalProps) {
   const [reason, setReason] = useState("");
   const [formError, setFormError] = useState<string | null>(null);
-
+  const cancelRef = useRef<HTMLButtonElement>(null);
   const voidMutation = useVoidOrder(orgId, token);
+  const { notify } = useToast();
 
-  if (!isOpen || !order) return null;
+  useEffect(() => {
+    if (isOpen) {
+      setReason("");
+      setFormError(null);
+    }
+  }, [isOpen, order?.id]);
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault();
+  if (!order) return null;
+
+  const units = (order.items ?? []).reduce((sum, it) => sum + it.quantity, 0);
+
+  async function confirm() {
+    if (!order) return;
     setFormError(null);
-
-    const parseResult = orderVoidSchema.safeParse({ reason });
-    if (!parseResult.success) {
-      setFormError(parseResult.error.issues[0].message);
+    const parsed = orderVoidSchema.safeParse({ reason });
+    if (!parsed.success) {
+      setFormError(parsed.error.issues[0].message);
       return;
     }
-
     try {
-      const idempotencyKey = `web-void-${order.id}-${Date.now()}`;
       await voidMutation.mutateAsync({
         orderId: order.id,
-        payload: parseResult.data,
-        idempotencyKey,
+        payload: parsed.data,
+        idempotencyKey: `web-void-${order.id}-${Date.now()}`,
       });
+      notify({ title: `Order ${order.order_number} voided`, description: units > 0 ? `${units} units returned to stock.` : undefined });
       onClose();
-    } catch (err: any) {
-      setFormError(err.message || "Failed to void order");
+    } catch (err) {
+      setFormError(err instanceof Error && err.message ? err.message : "Couldn’t void the order.");
     }
-  };
+  }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4">
-      <div className="w-full max-w-md rounded-lg bg-white p-6 shadow-xl">
-        <div className="flex items-center justify-between border-b pb-3">
-          <h2 className="text-lg font-semibold text-red-600">
-            Void Order {order.order_number}
-          </h2>
-          <button
-            onClick={onClose}
-            className="text-gray-400 hover:text-gray-500 focus:outline-none"
-          >
-            ✕
+    <Modal
+      open={isOpen}
+      tone="danger"
+      title={`Void order ${order.order_number}?`}
+      description="It stays in your records, marked Voided, and stops counting toward sales. Its items go back into stock. This can’t be undone."
+      onClose={onClose}
+      initialFocusRef={cancelRef}
+      footer={
+        <>
+          <button ref={cancelRef} type="button" className="btn btn-secondary" onClick={onClose} disabled={voidMutation.isPending}>
+            Keep order
           </button>
-        </div>
-
-        <form onSubmit={handleSubmit} className="py-4 space-y-4">
-          <div className="rounded-md bg-red-50 p-3 text-xs text-red-800 border border-red-200 space-y-1">
-            <p className="font-semibold">Owner-Only Critical Action:</p>
-            <p>
-              Voiding this order will permanently change its status to <strong>voided</strong> and restore all deducted product quantities to warehouse inventory balances.
-            </p>
-          </div>
-
-          {formError && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-700 border border-red-200">
-              {formError}
-            </div>
-          )}
-
-          <div>
-            <label className="block text-xs font-medium text-gray-700 mb-1">
-              Reason for Voiding (Required)
-            </label>
-            <textarea
-              rows={3}
-              value={reason}
-              onChange={(e) => setReason(e.target.value)}
-              placeholder="e.g. Customer cancelled order before dispatch / duplicate entry"
-              className="block w-full rounded-md border border-gray-300 p-2 text-sm focus:border-red-500 focus:outline-none"
-              required
-            />
-          </div>
-
-          <div className="border-t pt-4 flex justify-end gap-2">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 focus:outline-none"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={voidMutation.isPending}
-              className="rounded-md bg-red-600 px-4 py-2 text-sm font-medium text-white shadow-sm hover:bg-red-700 focus:outline-none disabled:opacity-50"
-            >
-              {voidMutation.isPending ? "Voiding Order..." : "Confirm Void Order"}
-            </button>
-          </div>
-        </form>
+          <button type="button" className="btn btn-danger" onClick={confirm} disabled={voidMutation.isPending} aria-busy={voidMutation.isPending}>
+            {voidMutation.isPending && <span className="spinner" />}
+            Void order
+          </button>
+        </>
+      }
+    >
+      <div className="field">
+        <label className="label" htmlFor="void-reason">
+          Reason <span className="opt">· required, shown in history</span>
+        </label>
+        <textarea
+          id="void-reason"
+          className="input"
+          rows={3}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          placeholder="e.g. Duplicate entry"
+          aria-invalid={!!formError}
+          aria-describedby={formError ? "void-error" : undefined}
+          style={{ height: "auto", paddingTop: 8, paddingBottom: 8 }}
+        />
       </div>
-    </div>
+      <p className="t-caption">Payments recorded against this order stay recorded. Void or correct them separately in Payments.</p>
+      {formError && (
+        <div className="alert a-danger" role="alert" id="void-error">
+          {formError}
+        </div>
+      )}
+    </Modal>
   );
 }

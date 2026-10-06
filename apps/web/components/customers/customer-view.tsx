@@ -221,7 +221,7 @@ export function CustomerView({ orgId, userRole = "staff", token }: CustomerViewP
                             View
                           </Link>
                           {c.status === "active" && (
-                            <Link className="btn btn-secondary btn-sm" href={`${base}/orders?customerId=${c.id}`} aria-label={`New order for ${c.name}`}>
+                            <Link className="btn btn-secondary btn-sm" href={`${base}/orders/new?customerId=${c.id}`} aria-label={`New order for ${c.name}`}>
                               New order
                             </Link>
                           )}

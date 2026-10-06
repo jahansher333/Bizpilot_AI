@@ -153,7 +153,7 @@ describe("Customer Frontend Slice (CUS-003)", () => {
       const table = screen.getByRole("table");
       expect(table).toHaveTextContent("owes you");
       expect(table).not.toHaveTextContent("Bilal Ahmed");
-      expect(screen.getByRole("link", { name: "New order for Tariq Ali" })).toHaveAttribute("href", `/workspace/org-1/orders?customerId=${mockCustomers[0].id}`);
+      expect(screen.getByRole("link", { name: "New order for Tariq Ali" })).toHaveAttribute("href", `/workspace/org-1/orders/new?customerId=${mockCustomers[0].id}`);
       expect(screen.getByText(/walk-in sales:/i)).toBeInTheDocument();
     });
 
@@ -295,7 +295,7 @@ describe("Customer Frontend Slice (CUS-003)", () => {
       expect(timeline).toHaveTextContent("Payment recorded · Cash");
       expect(timeline).toHaveTextContent("Order corrected");
       expect(screen.getByText("Wholesale buyer")).toBeInTheDocument();
-      expect(screen.getByRole("link", { name: /create order/i })).toHaveAttribute("href", `/workspace/org-1/orders?customerId=${mockCustomers[0].id}`);
+      expect(screen.getByRole("link", { name: /create order/i })).toHaveAttribute("href", `/workspace/org-1/orders/new?customerId=${mockCustomers[0].id}`);
     });
 
     it("lists orders and payments in their tabs", async () => {

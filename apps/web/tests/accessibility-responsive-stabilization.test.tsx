@@ -4,8 +4,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import React from "react";
 
 import { WorkspaceLayout } from "@/components/shell/workspace-layout";
-import { OrderCreateModal } from "@/components/orders/order-create-modal";
-import { OrderDetailModal } from "@/components/orders/order-detail-modal";
+import { OrderVoidModal } from "@/components/orders/order-void-modal";
 import * as authHook from "@/hooks/use-auth";
 import * as catalogApi from "@/lib/api/catalog";
 import * as customersApi from "@/lib/api/customers";
@@ -78,31 +77,7 @@ describe("UX-007: Mobile Responsive & Accessibility Stabilization", () => {
   });
 
   describe("Accessible Dialogs & Keyboard Navigation", () => {
-    it("OrderCreateModal has role='dialog', aria-modal='true', and closes on Escape key", async () => {
-      const handleClose = vi.fn();
-
-      renderWithQueryClient(
-        <OrderCreateModal
-          isOpen={true}
-          onClose={handleClose}
-          orgId="org-1"
-        />
-      );
-
-      const dialog = screen.getByRole("dialog");
-      expect(dialog).toHaveAttribute("aria-modal", "true");
-      expect(dialog).toHaveAttribute("aria-labelledby", "order-create-modal-title");
-
-      // Verify close button has aria-label
-      const closeBtn = screen.getByRole("button", { name: /close dialog/i });
-      expect(closeBtn).toBeInTheDocument();
-
-      // Press Escape key to close
-      fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
-      expect(handleClose).toHaveBeenCalledTimes(1);
-    });
-
-    it("OrderDetailModal renders with semantic dialog attributes and closes on Escape", async () => {
+    it("OrderVoidModal is an alertdialog that focuses the safe button and closes on Escape", async () => {
       const handleClose = vi.fn();
       const mockOrder = {
         id: "11111111-1111-4111-8111-111111111111",
@@ -122,22 +97,15 @@ describe("UX-007: Mobile Responsive & Accessibility Stabilization", () => {
         items: [],
       };
 
-      renderWithQueryClient(
-        <OrderDetailModal
-          isOpen={true}
-          onClose={handleClose}
-          order={mockOrder}
-        />
-      );
+      renderWithQueryClient(<OrderVoidModal isOpen={true} onClose={handleClose} order={mockOrder} orgId="org-1" />);
 
-      const dialog = screen.getByRole("dialog");
+      const dialog = screen.getByRole("alertdialog");
       expect(dialog).toHaveAttribute("aria-modal", "true");
-      expect(dialog).toHaveAttribute("aria-labelledby", "order-detail-modal-title");
+      expect(dialog).toHaveAccessibleName("Void order ORD-0001?");
+      expect(screen.getByRole("button", { name: "Keep order" })).toHaveFocus();
+      expect(screen.getByLabelText(/reason/i)).toBeInTheDocument();
 
-      const closeBtn = screen.getByRole("button", { name: /close order details/i });
-      expect(closeBtn).toBeInTheDocument();
-
-      fireEvent.keyDown(window, { key: "Escape", code: "Escape" });
+      fireEvent.keyDown(dialog, { key: "Escape", code: "Escape" });
       expect(handleClose).toHaveBeenCalledTimes(1);
     });
   });
