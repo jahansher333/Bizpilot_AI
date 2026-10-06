@@ -1,8 +1,8 @@
 # BizPilot AI Project Progress
 
-**Last updated:** 2026-10-03  
-**Current phase:** P0 hardening complete; release gate (HARD-008) pending human approval  
-**Current task status:** FIX-001 through FIX-006 committed after the 2026-10-03 code review; see "Open items before release"
+**Last updated:** 2026-10-07  
+**Current phase:** P0 complete and web UI redesigned to the approved design canvas (R1–R10); release gate (HARD-008) pending human approval  
+**Current task status:** FIX-001 to FIX-009 and redesign R1–R10 committed (not pushed); see "Open items before release"
 
 ## Purpose
 
@@ -84,14 +84,45 @@ A full code review against the PRD found P0 gaps that HARD-007 had not caught. E
 | FIX-005 | `0708946` | Shared web API client with single-flight refresh-and-retry on 401 and sign-out when the refresh token is rejected. |
 | FIX-006 | `65ffe32` | FR-003 Team Members UI (invite, change role, revoke), pending-invitation listing and acceptance, uniform invite error for missing/inactive accounts. |
 
+### 11. Follow-up fixes (2026-10-04)
+
+| Task | Commit | Result |
+| --- | --- | --- |
+| FIX-007 | `5324611` | Unverified compliance and marketing claims removed from the web UI. |
+| FIX-008 | `5f09b62` | UI role derived from the member's role in the URL workspace; workspace route guard for signed-out users and non-members. |
+| FIX-009 | `c985efb` | Membership changes recorded in the trace log; AI assistant requires date clarification and citations. |
+
+### 12. Web UI redesign to the design canvas (2026-10-04 to 2026-10-07)
+
+The web app was rebuilt screen by screen from the approved "BizPilot AI — Product Design" canvas. Each phase was planned, approved, tested and committed separately. No backend changes were made except where noted.
+
+| Phase | Commit | Result |
+| --- | --- | --- |
+| R1 | `131c22a` | Design system (`bizpilot.css` tokens and components) and app shell. |
+| R2 | `0a0a931` | Landing, login, register, password recovery, onboarding and workspace chooser. |
+| R3 | `3daf273` | Dashboard. |
+| R4 | `d97d9e0` | Products, categories, inventory and stock detail. |
+| R5 | `b295d9e` | Customers list and detail; `GET /customers/balances` (Owner/Manager). AI read services count only active records. |
+| R6 | `2de7588` | Orders list, full-page POS (`/orders/new`), order detail and inline correction (`/orders/[id]`). Fix: order writes now refresh inventory, dashboard and balances. |
+| — | `24f40b0` | E2E mocks restored after FIX-008 (stored session + `/auth/refresh` mock) and aligned with real API shapes. |
+| — | `e4e3cfa` | Fix: assistant called `/api/v1/.../ai/chat`, a route the backend never served (present since AI-008). |
+| R7 | `73e1831` | Payments (record/detail sheets, pre-filled from orders and customers) and expenses (Staff restricted state, categories panel). Fix: payment methods now match the backend enum; today's totals use the business timezone. |
+| R8 | `d28e0d3` | BizPilot AI: suggested questions, answers with a provenance footer, calm denied/failure states. Fix: the current question is no longer sent twice in `conversation_history`. |
+| R9 | `63b59d3` | Team (Owner-only, capability table mirrors backend permissions) and a Settings page (read-only business profile and account; sign out of all devices). |
+| R10a | `e04a659` | Not-found, error and offline states; before → after review step for payment and expense corrections. |
+| R10b | `e969668` | 4-step phone POS under 760px; expenses as cards on phones; no horizontal overflow at 375px on any main page. |
+| R10c | `30ddbb7` | Dark mode (system default, Appearance setting, no flash). Fix: sheets and dialogs now cover the viewport (a retained animation transform had trapped them). |
+
+Design items deliberately not built because the backend has no support yet: the eight structured AI result cards (answers show text plus provenance instead), renaming the business, editing a profile, changing a password while signed in, resending invitations, leaving a workspace, restoring archived expense categories, and date filter/search on orders and payments.
+
 ## Current Status
 
 | Area | Status | Notes |
 | --- | --- | --- |
 | Approved product and architecture documents | Complete | Human-approved source documents are in place. |
 | P0 backend modules (FR-001 to FR-013) | Complete | Including FIX-003 rate limiting, FIX-004 email delivery and FIX-006 invitation discovery. |
-| P0 web application | Complete with open items | Team Members added in FIX-006; see open items below for UI copy and role gating. |
-| P0 AI assistant | Complete | Read-only, eight grounded tools, kill switch, redacted metadata. |
+| P0 web application | Complete; redesigned (R1–R10) | All screens follow the design canvas, including mobile and dark mode. |
+| P0 AI assistant | Complete | Read-only, eight grounded tools, kill switch, redacted metadata. Web client route fixed in `e4e3cfa`. |
 | Hardening (HARD-001 to HARD-007) | Complete | Readiness review corrected by DOC-001 on 2026-10-03. |
 | Release gate (HARD-008) | Pending | Requires human review of the open items below. |
 
@@ -103,19 +134,28 @@ A full code review against the PRD found P0 gaps that HARD-007 had not caught. E
 - A full backend re-run after FIX-006 has not been recorded yet.
 - No push was performed.
 
+## Verification Recorded (2026-10-07, after R10c)
+
+- Web: TypeScript check clean; production build succeeds; Vitest 22 files, 194 tests passed; Playwright E2E 33 passed (desktop, 375px phone and dark mode).
+- Backend: only the R5 change was re-tested (customer balances, AI read services and app routes: 16 passed). A full backend run has not been recorded since FIX-006.
+- No push was performed.
+
 ## Next Controlled Step
 
 HARD-008 (release gate) needs explicit human approval. No task advances automatically from this file.
 
 ## Open Items Before Release
 
-- Uncommitted UI redesign (working tree) contains marketing copy that contradicts the PRD and must be removed or approved before any customer sees it, e.g. "100% SBP/Raast Compliant", "SOC-2 Type II Certified", "STATE BANK OF PAKISTAN & FBR COMPLIANT", "Real-time reconciliation", "Automated WhatsApp & SMS" and a hard-coded "₨ 0" balance.
-- Several workspace pages pass a hard-coded `userRole="owner"`, so Staff see owner-only buttons; the backend still rejects the actions.
-- The workspace has no client-side route guard for signed-out users opening a workspace URL directly.
+Resolved since 2026-10-03: unverified marketing copy (FIX-007), hard-coded `userRole="owner"` and the missing workspace route guard (FIX-008).
+
+
+- Security decision: the AI tool `get_customer_balance` requires only `customers:read`, so Staff can ask the AI for a customer's balance, while the Customers page (R5, `dashboard:read_operational`) hides balances from Staff. One of the two needs to change.
+- Expense date filters (`start_date`/`end_date`) are applied as UTC days, so "This month" can include or miss expenses from the first five hours of a month in Pakistan time.
+- A full backend test run should be recorded before release (last full run predates FIX-006).
 - Invitations require the invitee to already have an account, so an Owner can still tell whether an email is registered; inviting unregistered emails is a new feature needing a product decision.
 - No per-IP limit across many emails on login, and rate-limit rows are not pruned.
 - Tokens remain in `localStorage` (founder decision 2026-10-03); moving to httpOnly cookies is a later security task.
-- Error parsing is still duplicated across web API modules (`ApiError` signatures differ).
+- Error parsing is still duplicated across web API modules (nine `ApiError` classes in `apps/web/lib/api`).
 - No production Dockerfiles exist; only `Dockerfile.dev` for API and web.
 
 ## Deferred Decisions
