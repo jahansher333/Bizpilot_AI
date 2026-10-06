@@ -94,7 +94,7 @@ class AIDeterministicReadService:
                 func.count(Order.id).label("active_count"),
             )
             .where(Order.organization_id == organization_id)
-            .where(Order.status != "voided")
+            .where(Order.status == "active")
             .where(Order.ordered_at >= start_utc)
             .where(Order.ordered_at < end_utc)
         )
@@ -245,7 +245,7 @@ class AIDeterministicReadService:
             )
             .where(Order.organization_id == organization_id)
             .where(Order.customer_id == customer.id)
-            .where(Order.status != "voided")
+            .where(Order.status == "active")
         )
         orders_total, order_cnt = (await session.execute(order_stmt)).one()
 
@@ -257,7 +257,7 @@ class AIDeterministicReadService:
             )
             .where(Payment.organization_id == organization_id)
             .where(Payment.customer_id == customer.id)
-            .where(Payment.status != "voided")
+            .where(Payment.status == "active")
         )
         payments_total, pay_cnt = (await session.execute(pay_stmt)).one()
 
@@ -393,7 +393,7 @@ class AIDeterministicReadService:
             )
             .join(Order, Order.id == OrderItem.order_id)
             .where(Order.organization_id == organization_id)
-            .where(Order.status != "voided")
+            .where(Order.status == "active")
             .where(Order.ordered_at >= start_utc)
             .where(Order.ordered_at < end_utc)
             .group_by(OrderItem.product_id, OrderItem.product_name_snapshot)
@@ -450,7 +450,7 @@ class AIDeterministicReadService:
 
         base_filter = [
             Expense.organization_id == organization_id,
-            Expense.status != "voided",
+            Expense.status == "active",
             Expense.occurred_at >= start_utc,
             Expense.occurred_at < end_utc,
         ]
@@ -531,7 +531,7 @@ class AIDeterministicReadService:
 
         base_filter = [
             Payment.organization_id == organization_id,
-            Payment.status != "voided",
+            Payment.status == "active",
             Payment.received_at >= start_utc,
             Payment.received_at < end_utc,
         ]

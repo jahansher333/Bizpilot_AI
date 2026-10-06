@@ -102,3 +102,25 @@ export const customerUpdateSchema = z.object({
 });
 
 export type CustomerUpdateInput = z.infer<typeof customerUpdateSchema>;
+
+// ==============================================================================
+// Customer balances (R5) — recorded active orders minus active payments
+// ==============================================================================
+
+export interface CustomerBalance {
+  customer_id: string;
+  order_count: number;
+  voided_order_count: number;
+  total_orders_minor: number;
+  payment_count: number;
+  total_payments_minor: number;
+  balance_minor: number;
+}
+
+export interface CustomerBalancesResponse {
+  currency_code: string;
+  items: CustomerBalance[];
+  customers_with_orders: number;
+  customers_with_balance: number;
+  outstanding_minor: number;
+}

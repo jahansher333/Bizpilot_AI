@@ -1,6 +1,7 @@
 import {
   Customer,
   CustomerCreateInput,
+  CustomerBalancesResponse,
   CustomerListResponse,
   CustomerUpdateInput,
 } from "@/lib/schemas/customers";
@@ -118,6 +119,20 @@ export async function archiveCustomer(
   return request<Customer>(
     `/api/organizations/${orgId}/customers/${customerId}/archive`,
     { method: "POST" },
+    token
+  );
+}
+
+/** Owner/Manager only: recorded order and payment totals per customer (R5). */
+export async function getCustomerBalances(
+  orgId: string,
+  customerId?: string,
+  token?: string
+): Promise<CustomerBalancesResponse> {
+  const qs = customerId ? `?customer_id=${encodeURIComponent(customerId)}` : "";
+  return request<CustomerBalancesResponse>(
+    `/api/organizations/${orgId}/customers/balances${qs}`,
+    { method: "GET" },
     token
   );
 }

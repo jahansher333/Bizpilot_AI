@@ -120,3 +120,29 @@ class CustomerListResponseSchema(BaseModel):
     total: int
     limit: int
     offset: int
+
+
+class CustomerBalanceItemSchema(BaseModel):
+    """Recorded order/payment totals for one customer (R5).
+
+    Only active records count; voided and corrected originals are excluded so a
+    correction is never counted alongside its replacement. Not an accounting ledger.
+    """
+
+    customer_id: uuid.UUID
+    order_count: int
+    voided_order_count: int
+    total_orders_minor: int
+    payment_count: int
+    total_payments_minor: int
+    balance_minor: int
+
+
+class CustomerBalancesResponseSchema(BaseModel):
+    """Per-customer balances plus organization totals."""
+
+    currency_code: str
+    items: Sequence[CustomerBalanceItemSchema]
+    customers_with_orders: int
+    customers_with_balance: int
+    outstanding_minor: int = Field(..., description="Sum of positive balances (what customers owe)")

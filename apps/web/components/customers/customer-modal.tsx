@@ -1,12 +1,11 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import {
-  Customer,
-  customerCreateSchema,
-  customerUpdateSchema,
-} from "@/lib/schemas/customers";
+import { Customer, customerCreateSchema, customerUpdateSchema } from "@/lib/schemas/customers";
 import { useCreateCustomer, useUpdateCustomer } from "@/hooks/use-customers";
+import { Modal } from "@/components/ui/modal";
+import { Icon } from "@/components/ui/icon";
+import { useToast } from "@/components/ui/toast";
 
 interface CustomerModalProps {
   isOpen: boolean;
@@ -14,214 +13,113 @@ interface CustomerModalProps {
   orgId: string;
   customer?: Customer | null;
   token?: string;
+  onSaved?: (customer: Customer) => void;
 }
 
-export function CustomerModal({
-  isOpen,
-  onClose,
-  orgId,
-  customer,
-  token,
-}: CustomerModalProps) {
+/** Add / edit customer. Only the name is required; walk-in sales need no customer at all. */
+export function CustomerModal({ isOpen, onClose, orgId, customer, token, onSaved }: CustomerModalProps) {
   const isEditing = Boolean(customer);
   const [name, setName] = useState("");
   const [phone, setPhone] = useState("");
   const [email, setEmail] = useState("");
   const [notes, setNotes] = useState("");
   const [error, setError] = useState<string | null>(null);
-
   const createMutation = useCreateCustomer(orgId, token);
   const updateMutation = useUpdateCustomer(orgId, token);
   const isPending = createMutation.isPending || updateMutation.isPending;
+  const { notify } = useToast();
 
   useEffect(() => {
-    if (customer) {
-      setName(customer.name);
-      setPhone(customer.phone || "");
-      setEmail(customer.email || "");
-      setNotes(customer.notes || "");
-    } else {
-      setName("");
-      setPhone("");
-      setEmail("");
-      setNotes("");
-    }
+    if (!isOpen) return;
+    setName(customer?.name ?? "");
+    setPhone(customer?.phone ?? "");
+    setEmail(customer?.email ?? "");
+    setNotes(customer?.notes ?? "");
     setError(null);
   }, [customer, isOpen]);
 
-  if (!isOpen) return null;
-
-  const handleSubmit = async (e: React.FormEvent) => {
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
-
-    if (isEditing && customer) {
-      const parsed = customerUpdateSchema.safeParse({
-        name,
-        phone: phone || undefined,
-        email: email || undefined,
-        notes: notes || undefined,
-      });
-
-      if (!parsed.success) {
-        setError(parsed.error.issues[0]?.message || "Validation failed");
-        return;
+    const raw = { name, phone: phone || undefined, email: email || undefined, notes: notes || undefined };
+    try {
+      if (isEditing && customer) {
+        const parsed = customerUpdateSchema.safeParse(raw);
+        if (!parsed.success) {
+          setError(parsed.error.issues[0]?.message || "Check the details and try again");
+          return;
+        }
+        const saved = await updateMutation.mutateAsync({ customerId: customer.id, payload: parsed.data });
+        notify({ title: "Customer updated" });
+        onSaved?.(saved);
+      } else {
+        const parsed = customerCreateSchema.safeParse(raw);
+        if (!parsed.success) {
+          setError(parsed.error.issues[0]?.message || "Check the details and try again");
+          return;
+        }
+        const saved = await createMutation.mutateAsync(parsed.data);
+        notify({ title: "Customer added", description: saved.name });
+        onSaved?.(saved);
       }
-
-      try {
-        await updateMutation.mutateAsync({
-          customerId: customer.id,
-          payload: parsed.data,
-        });
-        onClose();
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to update customer";
-        setError(msg);
-      }
-    } else {
-      const parsed = customerCreateSchema.safeParse({
-        name,
-        phone: phone || undefined,
-        email: email || undefined,
-        notes: notes || undefined,
-      });
-
-      if (!parsed.success) {
-        setError(parsed.error.issues[0]?.message || "Validation failed");
-        return;
-      }
-
-      try {
-        await createMutation.mutateAsync(parsed.data);
-        onClose();
-      } catch (err: unknown) {
-        const msg = err instanceof Error ? err.message : "Failed to create customer";
-        setError(msg);
-      }
+      onClose();
+    } catch (err) {
+      setError(err instanceof Error && err.message ? err.message : "Couldn’t save the customer.");
     }
-  };
+  }
 
   return (
-    <div
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="customer-modal-title"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-xs p-4"
-    >
-      <div className="w-full max-w-lg rounded-2xl bg-surface-container-lowest p-6 shadow-xl border border-surface-container-high/60 animate-in fade-in zoom-in-95 duration-150">
-        <div className="flex items-start justify-between">
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <div className="w-8 h-8 rounded-lg bg-primary/10 text-primary flex items-center justify-center font-semibold">
-                <span className="material-symbols-outlined text-[18px]">
-                  {isEditing ? "edit" : "person_add"}
-                </span>
-              </div>
-              <h2 id="customer-modal-title" className="font-headline-sm text-lg font-bold text-on-surface">
-                {isEditing ? "Edit Customer" : "Add Customer"}
-              </h2>
-            </div>
-            <p className="text-xs text-on-surface-variant">
-              {isEditing
-                ? "Update contact details and preferences for this customer profile."
-                : "Record a new customer profile. Phone numbers must be unique within active customers."}
-            </p>
-          </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="text-on-surface-variant hover:text-on-surface p-1 rounded-lg hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-[20px]">close</span>
+    <Modal
+      open={isOpen}
+      title={isEditing ? "Edit customer" : "Add customer"}
+      description="Only the name is required. Phone numbers must be unique among active customers."
+      onClose={onClose}
+      footer={
+        <>
+          <button type="button" className="btn btn-secondary" onClick={onClose} disabled={isPending}>
+            Cancel
           </button>
-        </div>
-
+          <button type="submit" form="customer-form" className="btn btn-primary" disabled={isPending} aria-busy={isPending}>
+            {isPending && <span className="spinner" />}
+            {isEditing ? "Save changes" : "Add customer"}
+          </button>
+        </>
+      }
+    >
+      <form id="customer-form" onSubmit={handleSubmit} noValidate style={{ display: "flex", flexDirection: "column", gap: 14 }}>
         {error && (
-          <div role="alert" className="mt-4 rounded-lg bg-error-container/15 border border-error/20 p-3 text-xs text-error font-medium flex items-center gap-2">
-            <span className="material-symbols-outlined text-[18px] shrink-0">error</span>
-            <span>{error}</span>
+          <div className="alert a-danger" role="alert">
+            <Icon name="alert" />
+            <div>{error}</div>
           </div>
         )}
-
-        <form onSubmit={handleSubmit} noValidate className="mt-5 space-y-4">
-          <div>
-            <label htmlFor="customer-name" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
-              Customer Name <span className="text-error">*</span>
+        <div className="field">
+          <label className="label" htmlFor="cust-name">
+            Customer name
+          </label>
+          <input className="input" id="cust-name" value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. Bilal General Store" />
+        </div>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: 12 }}>
+          <div className="field">
+            <label className="label" htmlFor="cust-phone">
+              Phone <span className="opt">· optional</span>
             </label>
-            <input
-              id="customer-name"
-              type="text"
-              value={name}
-              onChange={(e) => setName(e.target.value)}
-              placeholder="e.g. Tariq Khan, Al-Rehman Traders"
-              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
-              required
-            />
+            <input className="input num" id="cust-phone" inputMode="tel" value={phone} onChange={(e) => setPhone(e.target.value)} placeholder="0300 1234567" />
           </div>
-
-          <div>
-            <label htmlFor="customer-phone" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
-              Phone Number
+          <div className="field">
+            <label className="label" htmlFor="cust-email">
+              Email <span className="opt">· optional</span>
             </label>
-            <input
-              id="customer-phone"
-              type="text"
-              value={phone}
-              onChange={(e) => setPhone(e.target.value)}
-              placeholder="e.g. 0300-1234567"
-              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all font-data-cell"
-            />
-            <p className="mt-1 text-[11px] text-outline">
-              Unique for active customers. Digits and Pakistani +92 formats supported.
-            </p>
+            <input className="input" id="cust-email" type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
           </div>
-
-          <div>
-            <label htmlFor="customer-email" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
-              Email Address
-            </label>
-            <input
-              id="customer-email"
-              type="email"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="e.g. customer@example.com"
-              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
-            />
-          </div>
-
-          <div>
-            <label htmlFor="customer-notes" className="block text-xs font-semibold uppercase font-label-caps text-on-surface-variant tracking-wider">
-              Notes
-            </label>
-            <textarea
-              id="customer-notes"
-              rows={2}
-              value={notes}
-              onChange={(e) => setNotes(e.target.value)}
-              placeholder="Optional notes or delivery preferences..."
-              className="mt-1.5 block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3 py-2 text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
-            />
-          </div>
-
-          <div className="mt-6 flex items-center justify-end gap-2.5 pt-2 border-t border-surface-container-low">
-            <button
-              type="button"
-              onClick={onClose}
-              className="rounded-lg border border-outline-variant/40 px-4 py-2 font-body-sm text-sm font-medium text-on-surface hover:bg-surface-container-high transition-colors"
-            >
-              Cancel
-            </button>
-            <button
-              type="submit"
-              disabled={isPending}
-              className="rounded-lg bg-primary px-4 py-2 font-body-sm text-sm font-medium text-on-primary hover:bg-primary-container active:scale-[0.99] transition-all shadow-sm disabled:opacity-50"
-            >
-              {isPending ? "Saving..." : isEditing ? "Save Changes" : "Create Customer"}
-            </button>
-          </div>
-        </form>
-      </div>
-    </div>
+        </div>
+        <div className="field">
+          <label className="label" htmlFor="cust-notes">
+            Notes <span className="opt">· optional</span>
+          </label>
+          <textarea className="input" id="cust-notes" value={notes} onChange={(e) => setNotes(e.target.value)} placeholder="Area, delivery instructions, credit terms…" />
+        </div>
+      </form>
+    </Modal>
   );
 }

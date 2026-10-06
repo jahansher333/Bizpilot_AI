@@ -5,6 +5,7 @@ import {
   archiveCustomer,
   createCustomer,
   getCustomer,
+  getCustomerBalances,
   listCustomers,
   updateCustomer,
 } from "@/lib/api/customers";
@@ -21,6 +22,8 @@ export const customerQueryKeys = {
   details: (orgId: string) => [...customerQueryKeys.all(orgId), "detail"] as const,
   detail: (orgId: string, customerId: string) =>
     [...customerQueryKeys.details(orgId), customerId] as const,
+  balances: (orgId: string, customerId?: string) =>
+    [...customerQueryKeys.all(orgId), "balances", customerId ?? "all"] as const,
 };
 
 export function useCustomers(
@@ -91,5 +94,14 @@ export function useArchiveCustomer(orgId: string, token?: string) {
         queryKey: customerQueryKeys.detail(orgId, customerId),
       });
     },
+  });
+}
+
+/** Balances are a financial view: enable only for Owners and Managers. */
+export function useCustomerBalances(orgId: string, customerId?: string, enabled = true, token?: string) {
+  return useQuery({
+    queryKey: customerQueryKeys.balances(orgId, customerId),
+    queryFn: () => getCustomerBalances(orgId, customerId, token),
+    enabled: !!orgId && enabled,
   });
 }

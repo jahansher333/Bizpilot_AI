@@ -1,9 +1,12 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { Customer } from "@/lib/schemas/customers";
-import { useArchiveCustomer, useCustomers } from "@/hooks/use-customers";
+import { useCustomerBalances, useCustomers } from "@/hooks/use-customers";
+import { Icon } from "@/components/ui/icon";
+import { initials } from "@/components/ui/logo";
+import { Money } from "@/components/ui/money";
+import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
 import { CustomerModal } from "@/components/customers/customer-modal";
 
 interface CustomerViewProps {
@@ -12,287 +15,264 @@ interface CustomerViewProps {
   token?: string;
 }
 
-export function CustomerView({ orgId, userRole = "owner", token }: CustomerViewProps) {
+type Filter = "all" | "balance" | "archived";
+const PAGE_SIZE = 100;
+
+/** Design canvas "14 · Customers". Balances are a financial view for Owners and Managers. */
+export function CustomerView({ orgId, userRole = "staff", token }: CustomerViewProps) {
+  const canSeeBalances = userRole === "owner" || userRole === "manager";
   const [search, setSearch] = useState("");
-  const [statusFilter, setStatusFilter] = useState<string | undefined>("active");
-  const [selectedCustomer, setSelectedCustomer] = useState<Customer | null>(null);
+  const [debounced, setDebounced] = useState("");
+  const [filter, setFilter] = useState<Filter>("all");
+  const [page, setPage] = useState(0);
   const [isModalOpen, setIsModalOpen] = useState(false);
 
-  const { data, isLoading, error } = useCustomers(
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      setDebounced(search.trim());
+      setPage(0);
+    }, 250);
+    return () => clearTimeout(timer);
+  }, [search]);
+
+  const { data, isLoading, error, refetch } = useCustomers(
     orgId,
-    {
-      status: statusFilter,
-      search: search.trim() || undefined,
-      limit: 100,
-      offset: 0,
-    },
+    { status: filter === "archived" ? "archived" : "active", search: debounced || undefined, limit: PAGE_SIZE, offset: page * PAGE_SIZE },
     token
   );
+  const { data: activeTotal } = useCustomers(orgId, { status: "active", limit: 1, offset: 0 }, token);
+  const balances = useCustomerBalances(orgId, undefined, canSeeBalances, token);
+  const byId = useMemo(() => new Map((balances.data?.items ?? []).map((b) => [b.customer_id, b])), [balances.data]);
+  const currency = balances.data?.currency_code ?? "PKR";
 
-  const archiveMutation = useArchiveCustomer(orgId, token);
-
-  const canMutate = userRole.toLowerCase() === "owner" || userRole.toLowerCase() === "manager";
-  const canCreate = true; // Owner, Manager, and Staff can create customers
-
-  const handleOpenCreate = () => {
-    setSelectedCustomer(null);
-    setIsModalOpen(true);
-  };
-
-  const handleOpenEdit = (customer: Customer) => {
-    setSelectedCustomer(customer);
-    setIsModalOpen(true);
-  };
-
-  const handleArchive = async (customer: Customer) => {
-    if (!window.confirm(`Are you sure you want to archive customer "${customer.name}"?`)) {
-      return;
-    }
-    try {
-      await archiveMutation.mutateAsync(customer.id);
-    } catch (err) {
-      console.error("Failed to archive customer", err);
-    }
-  };
+  const customers = (data?.items ?? []).filter((c) => filter !== "balance" || (byId.get(c.id)?.balance_minor ?? 0) > 0);
+  const base = `/workspace/${orgId}`;
 
   return (
-    <div className="space-y-6 p-6 max-w-[1600px] mx-auto">
-      {/* Top Executive Header & Primary Actions */}
-      <div className="flex flex-col gap-4 lg:flex-row lg:items-center lg:justify-between">
-        <div>
-          <h1 className="font-display-lg text-2xl lg:text-3xl font-semibold tracking-tight text-on-surface">
-            Customer Directory
-          </h1>
-          <p className="font-body-md text-sm text-on-surface-variant max-w-3xl mt-1">
-            Manage customer names and optional contact details. Orders and payments can be linked to a customer or recorded as walk-in.
+    <div className="main page-in">
+      <div className="ph">
+        <div className="ph-t">
+          <h1 className="t-h1">Customers</h1>
+          <p className="t-body secondary">
+            {canSeeBalances ? "Everyone you sell to, with what they’ve bought and what they owe." : "Everyone you sell to. Orders can also be recorded as walk-in sales."}
           </p>
         </div>
-        <div className="flex flex-wrap items-center gap-2 shrink-0">
-          <Link
-            href={`/workspace/${orgId}/orders`}
-            className="inline-flex items-center gap-1.5 rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-3.5 py-2 font-body-sm text-sm font-medium text-on-surface shadow-xs hover:bg-surface-container-high transition-colors"
-          >
-            <span className="material-symbols-outlined text-[18px] text-outline">shopping_bag</span>
-            <span>View Orders</span>
-          </Link>
-          {canCreate && (
-            <button
-              onClick={handleOpenCreate}
-              className="inline-flex items-center gap-1.5 rounded-lg bg-primary px-4 py-2 font-body-sm text-sm font-medium text-on-primary shadow-sm hover:bg-primary-container active:scale-[0.99] transition-all"
-            >
-              <span className="material-symbols-outlined text-[18px]">person_add</span>
-              <span>Add Customer</span>
-            </button>
+        <div className="ph-a">
+          <button type="button" className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+            <Icon name="plus" />
+            Add customer
+          </button>
+        </div>
+      </div>
+
+      <section className="sum-grid" aria-label="Customer summary">
+        <div className="card metric">
+          <span className="metric-l">Total customers</span>
+          <span className="num" style={{ font: "600 24px/32px var(--font)" }}>
+            {activeTotal?.total ?? "—"}
+          </span>
+          <span className="metric-c">Active · walk-in sales not included</span>
+        </div>
+        {canSeeBalances && (
+          <>
+            <div className="card metric">
+              <span className="metric-l">Customers with orders</span>
+              <span className="num" style={{ font: "600 24px/32px var(--font)" }}>
+                {balances.data?.customers_with_orders ?? "—"}
+              </span>
+              <span className="metric-c">At least one completed order</span>
+            </div>
+            <div className="card metric">
+              <span className="metric-l">Outstanding balance</span>
+              {balances.data ? (
+                <Money amountMinor={balances.data.outstanding_minor} currency={currency} style={{ font: "600 24px/32px var(--font)" }} />
+              ) : (
+                <span className="num" style={{ font: "600 24px/32px var(--font)" }}>
+                  —
+                </span>
+              )}
+              <span className="metric-c">
+                Completed orders − recorded payments
+                {balances.data ? ` · ${balances.data.customers_with_balance} ${balances.data.customers_with_balance === 1 ? "customer" : "customers"}` : ""}
+              </span>
+            </div>
+          </>
+        )}
+      </section>
+
+      <div className="alert a-neutral">
+        <Icon name="info" />
+        <span>
+          <b>Walk-in sales:</b> a customer profile is optional. Orders can be recorded without one.
+        </span>
+      </div>
+
+      <div className="toolbar">
+        <div className="ig" style={{ width: 340, maxWidth: "100%", height: 36 }}>
+          <span className="pre plain">
+            <Icon name="search" />
+          </span>
+          <input placeholder="Search by name or phone" aria-label="Search customers" value={search} onChange={(e) => setSearch(e.target.value)} />
+        </div>
+        <button type="button" className="chip" aria-pressed={filter === "all"} onClick={() => setFilter("all")}>
+          All
+        </button>
+        {canSeeBalances && (
+          <button type="button" className="chip" aria-pressed={filter === "balance"} onClick={() => setFilter("balance")}>
+            Has balance
+          </button>
+        )}
+        <button
+          type="button"
+          className="chip"
+          aria-pressed={filter === "archived"}
+          onClick={() => {
+            setFilter("archived");
+            setPage(0);
+          }}
+        >
+          Archived
+        </button>
+      </div>
+
+      {error && <ErrorState title="Couldn’t load customers" message="Nothing was lost — check your connection, then try again." onRetry={() => void refetch()} />}
+
+      {isLoading && (
+        <div className="tbl-wrap" aria-busy="true" aria-label="Loading customers" style={{ padding: 18, display: "flex", flexDirection: "column", gap: 14 }}>
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} style={{ display: "flex", gap: 12, alignItems: "center" }}>
+              <Skeleton width={28} height={28} radius={14} />
+              <Skeleton width={180} height={12} />
+            </div>
+          ))}
+        </div>
+      )}
+
+      {data && customers.length === 0 && (
+        <div className="card">
+          {debounced ? (
+            <EmptyState icon="search" title={`No customers match “${debounced}”`} description="Check the spelling, or search by phone number." />
+          ) : filter === "archived" ? (
+            <EmptyState icon="customers" title="No archived customers" />
+          ) : filter === "balance" ? (
+            <EmptyState icon="customers" title="Nobody owes you right now" description="Customers appear here when their recorded orders are more than their recorded payments." />
+          ) : (
+            <EmptyState
+              icon="customers"
+              title="Add your first customer"
+              description="Customers are optional — add the ones you sell to regularly to track their orders and payments."
+              action={
+                <button type="button" className="btn btn-primary" onClick={() => setIsModalOpen(true)}>
+                  Add customer
+                </button>
+              }
+            />
           )}
         </div>
-      </div>
+      )}
 
-      {/* Customer count */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-4 gap-4">
-        <div className="bg-surface-container-lowest p-5 rounded-xl shadow-xs border border-surface-container-high/60 flex items-start justify-between">
-          <div className="space-y-1">
-            <span className="font-label-caps text-xs uppercase text-on-surface-variant tracking-wider">
-              Customers (current filter)
-            </span>
-            <div className="font-data-metric text-2xl font-bold text-on-surface">
-              {data ? data.total : "—"}
-            </div>
-          </div>
-          <div className="w-9 h-9 rounded-lg bg-surface-container-high flex items-center justify-center text-primary">
-            <span className="material-symbols-outlined text-[20px]">groups</span>
-          </div>
-        </div>
-      </div>
-
-      {/* Walk-in notice banner */}
-      <div className="rounded-xl border border-secondary/20 bg-surface-container-low p-4 text-xs text-on-surface flex items-center justify-between gap-3">
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-lg bg-secondary/10 text-secondary flex items-center justify-center shrink-0">
-            <span className="material-symbols-outlined text-[18px]">info</span>
-          </div>
-          <div>
-            <span className="font-semibold text-on-surface">Walk-in alternative:</span>{" "}
-            <span className="text-on-surface-variant">
-              Recording a customer profile is optional. Orders can be entered directly as anonymous walk-in sales.
-            </span>
-          </div>
-        </div>
-      </div>
-
-      {/* Controls: Search & Status Filter */}
-      <div className="bg-surface-container-lowest p-4 rounded-xl shadow-xs border border-surface-container-high/60 flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div className="relative flex-1 max-w-md">
-          <span className="material-symbols-outlined absolute left-3 top-2.5 text-outline text-[18px]">
-            search
-          </span>
-          <input
-            type="text"
-            placeholder="Search by customer name or phone..."
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            className="block w-full rounded-lg border border-outline-variant/40 bg-surface-container-lowest pl-9 pr-3 py-2 font-body-sm text-sm text-on-surface placeholder:text-outline focus:border-primary focus:outline-none focus:ring-2 focus:ring-primary/10 shadow-xs transition-all"
-          />
-        </div>
-        <div className="flex items-center p-1 rounded-lg bg-surface-container-low border border-surface-container-high/60">
-          <button
-            onClick={() => setStatusFilter("active")}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-              statusFilter === "active"
-                ? "bg-surface-container-lowest text-primary shadow-xs"
-                : "text-on-surface-variant hover:text-on-surface"
-            }`}
-          >
-            Active
-          </button>
-          <button
-            onClick={() => setStatusFilter("archived")}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-              statusFilter === "archived"
-                ? "bg-surface-container-lowest text-primary shadow-xs"
-                : "text-on-surface-variant hover:text-on-surface"
-            }`}
-          >
-            Archived
-          </button>
-          <button
-            onClick={() => setStatusFilter(undefined)}
-            className={`rounded-md px-3 py-1.5 text-xs font-semibold transition-all ${
-              statusFilter === undefined
-                ? "bg-surface-container-lowest text-primary shadow-xs"
-                : "text-on-surface-variant hover:text-on-surface"
-            }`}
-          >
-            All
-          </button>
-        </div>
-      </div>
-
-      {/* Content Table */}
-      <div className="overflow-hidden rounded-xl border border-surface-container-high/60 bg-surface-container-lowest shadow-xs">
-        {isLoading ? (
-          <div className="p-8 text-center text-sm text-on-surface-variant">Loading customers...</div>
-        ) : error ? (
-          <div className="p-8 text-center text-sm text-error">Failed to load customer list.</div>
-        ) : !data || data.items.length === 0 ? (
-          <div className="p-8 text-center text-sm text-on-surface-variant">No customers found.</div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+      {customers.length > 0 && (
+        <>
+          <div className="tbl-wrap desk-only">
+            <table className="tbl">
               <thead>
-                <tr className="bg-surface-container-low text-on-surface-variant font-label-caps text-xs uppercase h-10 select-none border-b border-surface-container-high/60">
-                  <th className="px-4 py-3 font-semibold">Customer</th>
-                  <th className="px-4 py-3 font-semibold">Contact</th>
-                  <th className="px-4 py-3 font-semibold">Notes</th>
-                  <th className="px-4 py-3 font-semibold">Status</th>
-                  <th className="px-4 py-3 text-right font-semibold">Actions</th>
+                <tr>
+                  <th>Customer</th>
+                  <th>Phone</th>
+                  {canSeeBalances && <th className="r">Orders</th>}
+                  {canSeeBalances && <th className="r">Balance</th>}
+                  <th>Status</th>
+                  <th className="r">
+                    <span className="sr-only">Actions</span>
+                  </th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-surface-container-low font-body-md text-sm text-on-surface">
-                {data.items.map((customer) => {
-                  const initials = customer.name
-                    ? customer.name
-                        .split(" ")
-                        .map((n) => n[0])
-                        .slice(0, 2)
-                        .join("")
-                        .toUpperCase()
-                    : "CU";
-
+              <tbody>
+                {customers.map((c) => {
+                  const bal = byId.get(c.id);
+                  const owes = (bal?.balance_minor ?? 0) > 0;
                   return (
-                    <tr
-                      key={customer.id}
-                      className="hover:bg-surface-container-low/60 transition-colors group"
-                    >
-                      <td className="px-4 py-3.5">
-                        <div className="flex items-center gap-3">
-                          <div className="w-9 h-9 rounded-lg bg-surface-container-high text-primary font-semibold flex items-center justify-center text-sm shrink-0">
-                            {initials}
-                          </div>
-                          <div className="flex flex-col min-w-0">
-                            <span className="font-semibold text-on-surface truncate">
-                              {customer.name}
-                            </span>
-                            <span className="font-data-badge text-xs text-outline">
-                              ID: {customer.id.slice(0, 8)}
-                            </span>
+                    <tr key={c.id} className={c.status === "archived" ? "is-void" : ""}>
+                      <td>
+                        <div className="cell-main">
+                          <span className="av">{initials(c.name)}</span>
+                          <div style={{ display: "flex", flexDirection: "column", minWidth: 0 }}>
+                            <Link className="t" href={`${base}/customers/${c.id}`}>
+                              {c.name}
+                            </Link>
+                            {c.email && <span className="cell-sub">{c.email}</span>}
                           </div>
                         </div>
                       </td>
-                      <td className="px-4 py-3.5">
-                        <div className="flex flex-col">
-                          <span className="font-data-cell text-sm text-on-surface">
-                            {customer.phone || "—"}
-                          </span>
-                          {customer.email && (
-                            <span className="text-xs text-on-surface-variant">{customer.email}</span>
-                          )}
-                        </div>
+                      <td className="num secondary">{c.phone || "—"}</td>
+                      {canSeeBalances && <td className="r">{bal?.order_count ?? 0}</td>}
+                      {canSeeBalances && (
+                        <td className="r">
+                          <Money amountMinor={bal?.balance_minor ?? 0} currency={currency} className="strong" style={{ color: owes ? "var(--text-primary)" : "var(--text-muted)" }} />
+                          {owes && <div className="t-caption">owes you</div>}
+                        </td>
+                      )}
+                      <td>
+                        <span className={`badge ${c.status === "active" ? "b-success" : "b-neutral"}`}>{c.status === "active" ? "Active" : "Archived"}</span>
                       </td>
-                      <td className="px-4 py-3.5 text-on-surface-variant max-w-xs truncate">
-                        {customer.notes || "—"}
-                      </td>
-                      <td className="px-4 py-3.5">
-                        <span
-                          className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full font-data-badge text-xs font-semibold capitalize ${
-                            customer.status === "active"
-                              ? "bg-tertiary-container/15 text-tertiary"
-                              : "bg-surface-container-high text-on-surface-variant"
-                          }`}
-                        >
-                          <span
-                            className={`w-1.5 h-1.5 rounded-full ${
-                              customer.status === "active" ? "bg-tertiary" : "bg-outline"
-                            }`}
-                          ></span>
-                          {customer.status}
-                        </span>
-                      </td>
-                      <td className="px-4 py-3.5 text-right">
-                        <div className="flex justify-end items-center gap-2">
-                          <Link
-                            href={`/workspace/${orgId}/orders?customerId=${customer.id}`}
-                            className="inline-flex items-center gap-1 rounded-lg border border-primary/20 bg-primary/5 px-2.5 py-1 text-xs font-semibold text-primary hover:bg-primary/10 transition-colors"
-                          >
-                            <span className="material-symbols-outlined text-[14px]">add_shopping_cart</span>
-                            <span>New Order</span>
+                      <td className="r">
+                        <span className="row-actions">
+                          <Link className="btn btn-ghost btn-sm" href={`${base}/customers/${c.id}`} aria-label={`View ${c.name}`}>
+                            View
                           </Link>
-                          {canMutate && customer.status === "active" ? (
-                            <>
-                              <button
-                                onClick={() => handleOpenEdit(customer)}
-                                className="rounded-lg border border-outline-variant/40 bg-surface-container-lowest px-2.5 py-1 text-xs font-medium text-on-surface hover:bg-surface-container-high shadow-xs transition-colors"
-                              >
-                                Edit
-                              </button>
-                              <button
-                                onClick={() => handleArchive(customer)}
-                                className="rounded-lg border border-error/20 bg-error/5 px-2.5 py-1 text-xs font-medium text-error hover:bg-error/10 transition-colors"
-                              >
-                                Archive
-                              </button>
-                            </>
-                          ) : !canMutate ? (
-                            <span className="text-xs text-on-surface-variant py-1">Read-only</span>
-                          ) : null}
-                        </div>
+                          {c.status === "active" && (
+                            <Link className="btn btn-secondary btn-sm" href={`${base}/orders?customerId=${c.id}`} aria-label={`New order for ${c.name}`}>
+                              New order
+                            </Link>
+                          )}
+                        </span>
                       </td>
                     </tr>
                   );
                 })}
               </tbody>
             </table>
+            {data && data.total > PAGE_SIZE && (
+              <div className="pager">
+                <span>
+                  Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, data.total)} of {data.total}
+                </span>
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
+                    Previous
+                  </button>
+                  <button type="button" className="btn btn-secondary btn-sm" disabled={(page + 1) * PAGE_SIZE >= data.total} onClick={() => setPage((p) => p + 1)}>
+                    Next
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
-        )}
-      </div>
 
-      {/* Customer Create/Edit Modal */}
-      <CustomerModal
-        isOpen={isModalOpen}
-        onClose={() => setIsModalOpen(false)}
-        orgId={orgId}
-        customer={selectedCustomer}
-        token={token}
-      />
+          <ul className="only-sm" style={{ flexDirection: "column", gap: 8 }} aria-label="Customers">
+            {customers.map((c) => {
+              const bal = byId.get(c.id);
+              return (
+                <li key={c.id} className="card" style={{ padding: "12px 14px", display: "flex", gap: 12, alignItems: "center" }}>
+                  <span className="av lg">{initials(c.name)}</span>
+                  <div style={{ flex: 1, minWidth: 0 }}>
+                    <Link className="strong t-body-sm" href={`${base}/customers/${c.id}`} style={{ color: "var(--text-primary)", textDecoration: "none" }}>
+                      {c.name}
+                    </Link>
+                    <div className="t-caption num">
+                      {c.phone || "No phone"}
+                      {canSeeBalances && bal ? ` · ${bal.order_count} orders` : ""}
+                    </div>
+                  </div>
+                  {canSeeBalances && <Money amountMinor={bal?.balance_minor ?? 0} currency={currency} className="strong t-body-sm" />}
+                </li>
+              );
+            })}
+          </ul>
+        </>
+      )}
+
+      <CustomerModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} orgId={orgId} token={token} />
     </div>
   );
 }

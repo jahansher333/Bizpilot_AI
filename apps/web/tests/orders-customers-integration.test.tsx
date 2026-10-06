@@ -12,6 +12,7 @@ import * as ordersApi from "@/lib/api/orders";
 import * as catalogApi from "@/lib/api/catalog";
 
 vi.mock("@/lib/api/customers", () => ({
+  getCustomerBalances: vi.fn().mockResolvedValue({ currency_code: "PKR", items: [], customers_with_orders: 0, customers_with_balance: 0, outstanding_minor: 0 }),
   listCustomers: vi.fn(),
   createCustomer: vi.fn(),
 }));
@@ -52,8 +53,8 @@ const mockCustomers = [
     name: "Ahmed Trading",
     phone: "03001234567",
     email: "ahmed@example.com",
-    address: "Lahore",
-    current_balance: 150000,
+    notes: null,
+    status: "active",
     created_at: "2026-09-01T10:00:00Z",
   },
   {
@@ -61,8 +62,8 @@ const mockCustomers = [
     name: "Karachi Traders",
     phone: "03219876543",
     email: null,
-    address: null,
-    current_balance: 0,
+    notes: null,
+    status: "active",
     created_at: "2026-09-02T10:00:00Z",
   },
 ];
@@ -126,23 +127,10 @@ describe("UX-004: Customer & Order Workflow Integration", () => {
     });
   });
 
-  it("renders customer directory with orders link and action to start order for customer", async () => {
-    renderWithQueryClient(
-      <CustomerView orgId="org-1" userRole="owner" />
-    );
-
-    await waitFor(() => {
-      expect(screen.getByText("Ahmed Trading")).toBeInTheDocument();
-    });
-
-    // Check link to view all orders
-    const ordersLink = screen.getByRole("link", { name: /view orders/i });
-    expect(ordersLink).toHaveAttribute("href", "/workspace/org-1/orders");
-
-    // Check customer-specific New Order link
-    const newOrderLinks = screen.getAllByRole("link", { name: /new order/i });
-    expect(newOrderLinks.length).toBeGreaterThan(0);
-    expect(newOrderLinks[0]).toHaveAttribute("href", "/workspace/org-1/orders?customerId=cust-1");
+  it("renders the customer directory with a per-customer New order link (R5)", async () => {
+    renderWithQueryClient(<CustomerView orgId="org-1" userRole="owner" />);
+    await waitFor(() => expect(screen.getAllByText("Ahmed Trading").length).toBeGreaterThan(0));
+    expect(screen.getByRole("link", { name: /new order for ahmed trading/i })).toHaveAttribute("href", "/workspace/org-1/orders?customerId=cust-1");
   });
 
   it("renders orders view with customer filter notice and navigation link back to customers directory", async () => {

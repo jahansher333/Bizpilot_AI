@@ -9,7 +9,9 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.session import get_session
+from app.modules.customers.balances import get_customer_balances
 from app.modules.customers.schemas import (
+    CustomerBalancesResponseSchema,
     CustomerCreateSchema,
     CustomerListResponseSchema,
     CustomerResponseSchema,
@@ -74,6 +76,30 @@ async def list_customers(
         limit=limit,
         offset=offset,
     )
+
+
+# Declared before "/{customer_id}" so the literal path is not parsed as a customer ID.
+@router.get(
+    "/balances",
+    response_model=CustomerBalancesResponseSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Customer balances",
+    description=(
+        "Recorded order and payment totals per customer (active records only). "
+        "Financial view: Owners and Managers (dashboard:read_operational)."
+    ),
+)
+async def customer_balances(
+    organization_id: uuid.UUID,
+    customer_id: Optional[uuid.UUID] = Query(None, description="Optional single customer"),
+    context: RequestContext = Depends(require_permission(Permission.DASHBOARD_READ_OPERATIONAL)),
+    session: AsyncSession = Depends(get_session),
+) -> CustomerBalancesResponseSchema:
+    """Per-customer balances plus organization totals."""
+    if customer_id is not None:
+        # 404 for unknown or other-tenant customers, never an empty success.
+        await CustomerService(session=session, organization_id=context.organization_id).get_customer(customer_id)
+    return await get_customer_balances(session, context.organization_id, customer_id)
 
 
 @router.get(

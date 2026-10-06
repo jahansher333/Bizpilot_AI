@@ -342,3 +342,45 @@ async def test_ai_expenses_and_payments_breakdowns(db_session: AsyncSession) -> 
     )
     assert dash_res.success is True
     assert dash_res.values is not None
+
+
+@pytest.mark.asyncio
+async def test_ai_excludes_corrected_records_like_the_dashboard(db_session: AsyncSession) -> None:
+    """FIX-010: a corrected original must not be counted alongside its replacement."""
+    org = await _create_org(db_session, "Correction Org")
+    cust = Customer(id=uuid.uuid4(), organization_id=org.id, name="Saleem Store", status="active")
+    db_session.add(cust)
+    await db_session.flush()
+    now = datetime.now(timezone.utc)
+
+    replacement = Order(
+        id=uuid.uuid4(), organization_id=org.id, customer_id=cust.id, order_number="ORD-R",
+        status="active", ordered_at=now, order_total_minor=80000, currency_code="PKR",
+    )
+    original = Order(
+        id=uuid.uuid4(), organization_id=org.id, customer_id=cust.id, order_number="ORD-O",
+        status="corrected", ordered_at=now, order_total_minor=100000, currency_code="PKR",
+    )
+    pay_replacement = Payment(
+        id=uuid.uuid4(), organization_id=org.id, customer_id=cust.id, amount_minor=50000,
+        channel="cash", received_at=now, status="active",
+    )
+    pay_original = Payment(
+        id=uuid.uuid4(), organization_id=org.id, customer_id=cust.id, amount_minor=55000,
+        channel="cash", received_at=now, status="corrected",
+    )
+    db_session.add_all([replacement, original, pay_replacement, pay_original])
+    await db_session.flush()
+
+    sales = await AIDeterministicReadService.get_sales_summary(
+        session=db_session, organization_id=org.id, period=DashboardPeriod.TODAY
+    )
+    assert sales.values.total_sales_minor == 80000
+    assert sales.values.active_orders_count == 1
+
+    balance = await AIDeterministicReadService.get_customer_balance(
+        session=db_session, organization_id=org.id, customer_id=cust.id
+    )
+    assert balance.values.total_orders_minor == 80000
+    assert balance.values.total_payments_minor == 50000
+    assert balance.values.outstanding_balance_minor == 30000
