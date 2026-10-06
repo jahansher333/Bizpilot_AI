@@ -9,7 +9,6 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from alembic.script import ScriptDirectory
-from dotenv import dotenv_values
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncEngine, AsyncSession, async_sessionmaker, create_async_engine
 from sqlalchemy.pool import NullPool
@@ -26,11 +25,10 @@ if sys.platform == "win32":
 
 
 def get_test_db_url() -> str:
-    env_file = Path(__file__).resolve().parents[2] / ".env"
-    env_vals = dotenv_values(env_file) if env_file.exists() else {}
-    url = os.environ.get("BIZPILOT_DATABASE__URL") or env_vals.get("BIZPILOT_DATABASE__URL")
-    if not url:
-        pytest.skip("BIZPILOT_DATABASE__URL not set in environment or .env")
+    # conftest.py has already set this to the guarded, local-only test database (or a placeholder).
+    url = os.environ.get("BIZPILOT_DATABASE__URL", "")
+    if not url or "test_user:test_password" in url:
+        pytest.skip("No local test database configured in TEST_DATABASE_URL")
     return normalize_database_url(url)
 
 

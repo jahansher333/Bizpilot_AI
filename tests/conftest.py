@@ -17,15 +17,31 @@ if str(REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(REPO_ROOT))
 
 from dotenv import dotenv_values
-env_file = REPO_ROOT / ".env"
-if env_file.exists():
-    env_vals = dotenv_values(env_file)
-    if "BIZPILOT_DATABASE__URL" in env_vals and "BIZPILOT_DATABASE__URL" not in os.environ:
-        os.environ["BIZPILOT_DATABASE__URL"] = env_vals["BIZPILOT_DATABASE__URL"]
 
+from tests.db_guard import (
+    PLACEHOLDER_DATABASE_URL,
+    RemoteTestDatabaseError,
+    assert_local_database,
+    resolve_test_database_url,
+)
+
+env_file = REPO_ROOT / ".env"
+_dotenv = dotenv_values(env_file) if env_file.exists() else {}
+
+# Safety guard: the app under test always gets the *test* database URL (or a local placeholder),
+# even if BIZPILOT_DATABASE__URL is set in the shell or .env to a real/cloud database.
+_TEST_DATABASE_URL = resolve_test_database_url(os.environ, _dotenv) or PLACEHOLDER_DATABASE_URL
+os.environ["BIZPILOT_DATABASE__URL"] = _TEST_DATABASE_URL
 os.environ.setdefault("BIZPILOT_ENVIRONMENT", "test")
-os.environ.setdefault("BIZPILOT_DATABASE__URL", "postgresql://test_user:test_password@localhost/bizpilot_test")
 os.environ.setdefault("BIZPILOT_AUTH__SIGNING_SECRET", "test-only-signing-secret")
+
+
+def pytest_configure(config: pytest.Config) -> None:
+    """Stop the whole run, before any test executes, if the test database is not local."""
+    try:
+        assert_local_database(_TEST_DATABASE_URL)
+    except RemoteTestDatabaseError as exc:
+        raise pytest.UsageError(str(exc)) from None
 
 if sys.platform == "win32":
     import asyncio
