@@ -1,18 +1,17 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useRef } from "react";
 import Link from "next/link";
-import { useCreateOrder } from "@/hooks/use-orders";
-import { useCategories } from "@/hooks/use-catalog";
-import { useCustomers } from "@/hooks/use-customers";
-import { Order } from "@/lib/schemas/orders";
-import { newIdempotencyKey, productThumb } from "@/lib/stock";
+import { productThumb } from "@/lib/stock";
+import { useMediaQuery, PHONE_QUERY } from "@/hooks/use-media-query";
 import { Icon } from "@/components/ui/icon";
 import { Money, formatMinor } from "@/components/ui/money";
 import { Modal } from "@/components/ui/modal";
 import { EmptyState, ErrorState, Skeleton } from "@/components/ui/states";
-import { CartLine, PriceInput, QtyStepper, SellableProduct, cartTotal, cartUnits, useSellableProducts } from "@/components/orders/order-cart";
+import { PriceInput, QtyStepper } from "@/components/orders/order-cart";
 import { WALK_IN } from "@/components/orders/order-meta";
+import { OrderPosMobile } from "@/components/orders/order-pos-mobile";
+import { Pos, usePos } from "@/components/orders/use-pos";
 
 interface OrderPosProps {
   orgId: string;
@@ -22,86 +21,23 @@ interface OrderPosProps {
 
 const LOW = 10;
 
-/** Design canvas "17 · Create order (POS)": catalogue left, cart right; stacks on narrow screens. */
+/** Create order: the desktop POS, or the design's 4-step flow on phones (under 760px). */
 export function OrderPos({ orgId, token, initialCustomerId }: OrderPosProps) {
-  const products = useSellableProducts(orgId, token);
-  const { data: categories } = useCategories(orgId, { status: "active", limit: 100 }, token);
-  const { data: customers } = useCustomers(orgId, { status: "active", limit: 100 }, token);
-  const createMutation = useCreateOrder(orgId, token);
+  const pos = usePos(orgId, token, initialCustomerId);
+  const phone = useMediaQuery(PHONE_QUERY);
+  return phone ? <OrderPosMobile orgId={orgId} pos={pos} /> : <OrderPosDesktop orgId={orgId} pos={pos} />;
+}
 
-  const [q, setQ] = useState("");
-  const [cat, setCat] = useState<string>("all");
-  const [customerId, setCustomerId] = useState(initialCustomerId ?? "");
-  const [lines, setLines] = useState<CartLine[]>([]);
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState<Order | null>(null);
+/** Design canvas "17 · Create order (POS)": catalogue left, cart right. */
+function OrderPosDesktop({ orgId, pos }: { orgId: string; pos: Pos }) {
+  const { products, q, setQ, cat, setCat, query, visible, inCart, lines, total, units, customerName, customerId, add, setQty, setPrice, error, done } = pos;
   const searchRef = useRef<HTMLInputElement>(null);
-  // One key per cart: a retried submit of the same cart can never create a second order.
-  const idemKey = useRef(newIdempotencyKey());
-
   const base = `/workspace/${orgId}`;
-  const query = q.trim().toLowerCase();
-  const visible = useMemo(
-    () => products.items.filter((p) => (cat === "all" || p.category_id === cat) && (!query || `${p.name} ${p.code}`.toLowerCase().includes(query))),
-    [products.items, cat, query]
-  );
-  const inCart = new Map(lines.map((l) => [l.productId, l.qty]));
-  const total = cartTotal(lines);
-  const units = cartUnits(lines);
-  const customerName = customers?.items.find((c) => c.id === customerId)?.name ?? WALK_IN;
-
-  function changed() {
-    idemKey.current = newIdempotencyKey();
-    setError(null);
-  }
-
-  function add(p: SellableProduct) {
-    const qty = inCart.get(p.id) ?? 0;
-    if (qty >= p.stock) return;
-    changed();
-    setLines((current) =>
-      qty > 0
-        ? current.map((l) => (l.productId === p.id ? { ...l, qty: l.qty + 1 } : l))
-        : [...current, { productId: p.id, name: p.name, code: p.code, unit: p.base_unit, qty: 1, priceMinor: p.default_price_minor, max: p.stock }]
-    );
-  }
-
-  function setQty(productId: string, qty: number) {
-    changed();
-    setLines((current) => (qty <= 0 ? current.filter((l) => l.productId !== productId) : current.map((l) => (l.productId === productId ? { ...l, qty: Math.min(qty, l.max) } : l))));
-  }
-
-  function setPrice(productId: string, priceMinor: number) {
-    changed();
-    setLines((current) => current.map((l) => (l.productId === productId ? { ...l, priceMinor } : l)));
-  }
-
-  async function complete() {
-    if (lines.length === 0 || createMutation.isPending) return;
-    setError(null);
-    try {
-      const order = await createMutation.mutateAsync({
-        payload: {
-          customer_id: customerId || undefined,
-          items: lines.map((l) => ({ product_id: l.productId, quantity: l.qty, unit_price_minor: l.priceMinor })),
-          currency_code: "PKR",
-        },
-        idempotencyKey: idemKey.current,
-      });
-      setDone(order);
-    } catch (err) {
-      setError(err instanceof Error && err.message ? err.message : "Couldn’t complete the order. Nothing was saved.");
-    }
-  }
-
-  function reset() {
-    setDone(null);
-    setLines([]);
-    setCustomerId("");
-    setQ("");
-    idemKey.current = newIdempotencyKey();
+  const complete = pos.complete;
+  const reset = () => {
+    pos.reset();
     searchRef.current?.focus();
-  }
+  };
 
   // "/" focuses search; Ctrl/⌘+Enter completes the order.
   const completeRef = useRef(complete);
@@ -155,12 +91,12 @@ export function OrderPos({ orgId, token, initialCustomerId }: OrderPosProps) {
             style={{ fontSize: 15, fontWeight: 400 }}
           />
         </div>
-        {(categories?.items.length ?? 0) > 0 && (
+        {pos.categories.length > 0 && (
           <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }} role="group" aria-label="Category">
             <button type="button" className="chip" aria-pressed={cat === "all"} onClick={() => setCat("all")}>
               All
             </button>
-            {categories!.items.map((c) => (
+            {pos.categories.map((c) => (
               <button key={c.id} type="button" className="chip" aria-pressed={cat === c.id} onClick={() => setCat(c.id)}>
                 {c.name}
               </button>
@@ -257,9 +193,9 @@ export function OrderPos({ orgId, token, initialCustomerId }: OrderPosProps) {
           <label className="label" htmlFor="pos-customer">
             Customer
           </label>
-          <select id="pos-customer" className="input" value={customerId} onChange={(e) => setCustomerId(e.target.value)} style={{ height: 44 }}>
+          <select id="pos-customer" className="input" value={customerId} onChange={(e) => pos.chooseCustomer(e.target.value)} style={{ height: 44 }}>
             <option value="">{WALK_IN}</option>
-            {customers?.items.map((c) => (
+            {pos.customers.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
                 {c.phone ? ` · ${c.phone}` : ""}
@@ -319,12 +255,12 @@ export function OrderPos({ orgId, token, initialCustomerId }: OrderPosProps) {
           </div>
           <button
             type="button"
-            className={`btn btn-primary btn-lg btn-block${createMutation.isPending ? " is-loading" : ""}`}
-            disabled={lines.length === 0 || createMutation.isPending}
-            aria-busy={createMutation.isPending}
+            className={`btn btn-primary btn-lg btn-block${pos.pending ? " is-loading" : ""}`}
+            disabled={lines.length === 0 || pos.pending}
+            aria-busy={pos.pending}
             onClick={() => void complete()}
           >
-            {createMutation.isPending ? (
+            {pos.pending ? (
               <>
                 <span className="spinner" />
                 Completing order…

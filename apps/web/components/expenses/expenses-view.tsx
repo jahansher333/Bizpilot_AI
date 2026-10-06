@@ -191,7 +191,31 @@ export function ExpensesView({ orgId, userRole = "staff", token }: ExpensesViewP
           )}
 
           {expenses.length > 0 && (
-            <div className="tbl-wrap fade-in">
+            <ul className="only-sm" style={{ flexDirection: "column", gap: 8 }} aria-label="Expenses">
+              {expenses.map((e) => {
+                const active = e.status === "active";
+                return (
+                  <li key={e.id}>
+                    <button type="button" className="card" onClick={() => setDetail(e)} style={{ width: "100%", textAlign: "left", font: "inherit", color: "inherit", padding: "12px 14px", display: "flex", gap: 12, alignItems: "center", cursor: "pointer", minHeight: 56 }}>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div className={`strong t-body-sm${active ? "" : " struck"}`}>{e.description || e.payee || "Expense"}</div>
+                        <div className="t-caption">
+                          {categoryName(e.expense_category_id)} · {orderWhen(e.occurred_at)}
+                        </div>
+                      </div>
+                      <div style={{ display: "flex", flexDirection: "column", alignItems: "flex-end", gap: 4 }}>
+                        <Money amountMinor={e.amount_minor} currency={e.currency_code} className={active ? "strong t-body-sm" : "strong t-body-sm struck"} />
+                        <RecordStatusBadge status={e.status} />
+                      </div>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+
+          {expenses.length > 0 && (
+            <div className="tbl-wrap desk-only fade-in">
               <table className="tbl">
                 <thead>
                   <tr>
