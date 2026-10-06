@@ -1,10 +1,11 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import Link from "next/link";
 import { useOptionalAuth } from "@/hooks/use-auth";
 import { useOrgRole } from "@/hooks/use-org-role";
 import { logoutAllSessions } from "@/lib/api/auth";
+import { THEME_EVENT, ThemePreference, readThemePreference, setThemePreference } from "@/lib/theme";
 import { Icon } from "@/components/ui/icon";
 import { initials } from "@/components/ui/logo";
 import { Modal } from "@/components/ui/modal";
@@ -170,6 +171,8 @@ export function SettingsView({ orgId }: SettingsViewProps) {
             </section>
           )}
 
+          {current === "account" && <AppearanceCard />}
+
           {current === "account" && user && (
             <section className="card fade-in" aria-labelledby="acc-h">
               <div className="card-h">
@@ -224,5 +227,62 @@ export function SettingsView({ orgId }: SettingsViewProps) {
         }
       />
     </div>
+  );
+}
+
+const APPEARANCE: { value: ThemePreference; label: string; hint: string }[] = [
+  { value: "system", label: "System", hint: "Match this device’s light or dark setting" },
+  { value: "light", label: "Light", hint: "Always light" },
+  { value: "dark", label: "Dark", hint: "Always dark — easier on the eyes at night" },
+];
+
+/** Per-device display preference (stored on this device only, like any browser setting). */
+function AppearanceCard() {
+  const [pref, setPref] = useState<ThemePreference>("system");
+  useEffect(() => {
+    setPref(readThemePreference());
+    const onChange = (e: Event) => setPref((e as CustomEvent<ThemePreference>).detail);
+    window.addEventListener(THEME_EVENT, onChange);
+    return () => window.removeEventListener(THEME_EVENT, onChange);
+  }, []);
+
+  return (
+    <section className="card fade-in" aria-labelledby="ap-h">
+      <div className="card-h">
+        <div>
+          <h2 className="t-h3" id="ap-h">
+            Appearance
+          </h2>
+          <span className="t-caption">Saved on this device only.</span>
+        </div>
+      </div>
+      <div className="card-b">
+        <fieldset style={{ border: 0, margin: 0, padding: 0, display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(180px, 100%), 1fr))", gap: 8 }}>
+          <legend className="sr-only">Theme</legend>
+          {APPEARANCE.map((o) => (
+            <label
+              key={o.value}
+              style={{ display: "flex", gap: 10, padding: "12px 14px", minHeight: 44, border: `1px solid ${pref === o.value ? "var(--brand)" : "var(--border)"}`, borderRadius: 8, background: pref === o.value ? "var(--brand-tint)" : "var(--surface)", cursor: "pointer" }}
+            >
+              <input
+                type="radio"
+                name="appearance"
+                value={o.value}
+                checked={pref === o.value}
+                onChange={() => {
+                  setPref(o.value);
+                  setThemePreference(o.value);
+                }}
+                style={{ marginTop: 3, accentColor: "var(--brand)" }}
+              />
+              <span style={{ display: "flex", flexDirection: "column", gap: 2 }}>
+                <span className="t-h4">{o.label}</span>
+                <span className="t-body-sm secondary">{o.hint}</span>
+              </span>
+            </label>
+          ))}
+        </fieldset>
+      </div>
+    </section>
   );
 }

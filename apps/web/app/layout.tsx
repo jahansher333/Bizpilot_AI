@@ -5,6 +5,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { QueryProvider } from "@/components/providers/query-provider";
 import { AuthProvider } from "@/components/providers/auth-provider";
 import { ToastProvider } from "@/components/ui/toast";
+import { ThemeWatcher } from "@/components/providers/theme-watcher";
+import { THEME_SCRIPT } from "@/lib/theme";
 
 import "./globals.css";
 import "./bizpilot.css";
@@ -19,15 +21,13 @@ export const metadata: Metadata = {
 
 export default function RootLayout({ children }: Readonly<{ children: ReactNode }>) {
   return (
-    <html lang="en" className={`${geist.variable} ${geistMono.variable}`}>
+    <html lang="en" className={`${geist.variable} ${geistMono.variable}`} data-theme="light" suppressHydrationWarning>
       <head>
-        {/* Material Symbols stays until every pre-redesign screen is migrated (R2–R9). */}
-        <link
-          href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@20..48,100..700,0..1,-50..200&display=swap"
-          rel="stylesheet"
-        />
+        {/* Sets data-theme before first paint (no white flash in dark mode). */}
+        <script dangerouslySetInnerHTML={{ __html: THEME_SCRIPT }} />
       </head>
-      <body className="bp" data-theme="light">
+      <body className="bp">
+        <ThemeWatcher />
         <QueryProvider>
           <AuthProvider>
             <ToastProvider>{children}</ToastProvider>

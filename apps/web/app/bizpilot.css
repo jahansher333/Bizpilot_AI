@@ -70,7 +70,8 @@
   text-rendering: optimizeLegibility;
 }
 
-.bp[data-theme="dark"] {
+.bp[data-theme="dark"],
+html[data-theme="dark"] .bp {
   --brand: #2FA47A;
   --brand-hover: #3DB98C;
   --brand-tint: rgba(47,164,122,.13);
@@ -385,7 +386,7 @@ textarea.input { height: auto; min-height: 84px; padding: 10px 12px; resize: ver
 .seg-healthy { background: var(--brand); }
 .seg-low { background: repeating-linear-gradient(-45deg, var(--warning) 0 3px, #D99A3A 3px 6px); }
 .seg-out { background: var(--danger); }
-.bp[data-theme="dark"] .seg-low { background: repeating-linear-gradient(-45deg, var(--warning) 0 3px, #B98736 3px 6px); }
+.bp[data-theme="dark"] .seg-low, html[data-theme="dark"] .bp .seg-low { background: repeating-linear-gradient(-45deg, var(--warning) 0 3px, #B98736 3px 6px); }
 .legend-sw { width: 10px; height: 10px; border-radius: 2px; display: inline-block; flex: none; }
 
 /* ---------- timeline ---------- */
@@ -436,10 +437,10 @@ textarea.input { height: auto; min-height: 84px; padding: 10px 12px; resize: ver
 .empty-art .spark svg.i { width: 12px; height: 12px; stroke-width: 2.5; }
 
 /* ---------- motion ---------- */
-.page-in { animation: bp-in 180ms var(--ease-out) both; }
-.reveal { animation: bp-in var(--t-complex) var(--ease-out) both; }
+.page-in { animation: bp-in 180ms var(--ease-out) backwards; }
+.reveal { animation: bp-in var(--t-complex) var(--ease-out) backwards; }
 .fade-in { animation: bp-fade var(--t-std) var(--ease-out) both; }
-.stagger > * { animation: bp-in 260ms var(--ease-out) both; }
+.stagger > * { animation: bp-in 260ms var(--ease-out) backwards; }
 .stagger > *:nth-child(2) { animation-delay: 40ms; }
 .stagger > *:nth-child(3) { animation-delay: 80ms; }
 .stagger > *:nth-child(4) { animation-delay: 120ms; }
@@ -447,7 +448,7 @@ textarea.input { height: auto; min-height: 84px; padding: 10px 12px; resize: ver
 .stagger > *:nth-child(6) { animation-delay: 200ms; }
 .stagger > *:nth-child(n+7) { animation-delay: 240ms; }
 .check-anim path { stroke-dasharray: 26; stroke-dashoffset: 26; animation: bp-draw 380ms 120ms var(--ease-out) forwards; }
-.pop-in { animation: bp-scale 260ms var(--ease-out) both; }
+.pop-in { animation: bp-scale 260ms var(--ease-out) backwards; }
 .shake { animation: bp-shake 260ms var(--ease-out) 1; }
 
 @keyframes bp-in { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
@@ -508,3 +509,10 @@ textarea.input { height: auto; min-height: 84px; padding: 10px 12px; resize: ver
   .bp .dots span { opacity: .6; }
   .bp .btn:active { transform: none; }
 }
+
+/* Transform animations use fill "backwards", never "both": a retained transform (even an identity
+   matrix) makes the element the containing block for position:fixed overlays inside it, so sheets
+   and dialogs would stop at the page's height instead of covering the viewport. */
+
+/* ---------- app theme (R10c): <html data-theme> is set before first paint ---------- */
+html[data-theme="dark"] { color-scheme: dark; background: #0D0F10; }
