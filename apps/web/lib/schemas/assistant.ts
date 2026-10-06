@@ -46,34 +46,3 @@ export const assistantResponseSchema = z.object({
 });
 
 export type AssistantResponse = z.infer<typeof assistantResponseSchema>;
-
-export const SUGGESTED_PROMPTS_BY_ROLE: Record<string, string[]> = {
-  owner: [
-    "How are sales today?",
-    "Which products are low in stock?",
-    "Show today's recorded payments.",
-    "Summarize this month's expenses.",
-    "What are my top selling products?",
-    "Show my operational dashboard summary.",
-  ],
-  manager: [
-    "How are sales today?",
-    "Which products are low in stock?",
-    "Show today's recorded payments.",
-    "Summarize this month's expenses.",
-    "What are my top selling products?",
-    "Show my operational dashboard summary.",
-  ],
-  staff: [
-    "How are sales today?",
-    "Which products are low in stock?",
-    "Show today's recorded payments.",
-    "What are my top selling products?",
-    "Show my operational dashboard summary.",
-  ],
-};
-
-export function getSuggestedPrompts(role: string): string[] {
-  const normalized = role.toLowerCase();
-  return SUGGESTED_PROMPTS_BY_ROLE[normalized] || SUGGESTED_PROMPTS_BY_ROLE.staff;
-}

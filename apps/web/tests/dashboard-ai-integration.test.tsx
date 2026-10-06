@@ -144,7 +144,7 @@ describe("UX-006: Dashboard & AI Workspace Integration", () => {
         undefined
       );
       expect(screen.getByText(/sales today are pkr 1,500\.00 across 3 orders\./i)).toBeInTheDocument();
-      expect(screen.getByText("get_sales_summary (today)")).toBeInTheDocument();
+      expect(screen.getByLabelText("Where this answer came from")).toHaveTextContent(/Verified from Orders.*Period Today/);
     });
   });
 });

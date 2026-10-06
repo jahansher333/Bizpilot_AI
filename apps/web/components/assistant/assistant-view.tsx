@@ -1,13 +1,11 @@
 "use client";
 
-import React, { useState, useRef, useEffect } from "react";
-import {
-  AssistantMessage,
-  AssistantResponse,
-  getSuggestedPrompts,
-} from "@/lib/schemas/assistant";
+import React, { useEffect, useRef, useState } from "react";
+import { AssistantMessage, AssistantResponse } from "@/lib/schemas/assistant";
 import { useAssistantQuery } from "@/hooks/use-assistant";
-import { BizPilotLogo } from "@/components/ui/bizpilot-logo";
+import { useOptionalAuth } from "@/hooks/use-auth";
+import { Icon, IconName } from "@/components/ui/icon";
+import { AnswerCard, FailureKind, FailureNotice, failureKind } from "@/components/assistant/assistant-parts";
 
 interface AssistantViewProps {
   orgId: string;
@@ -16,327 +14,205 @@ interface AssistantViewProps {
   initialPrompt?: string;
 }
 
-interface MessageItem {
-  id: string;
-  role: "user" | "assistant";
-  content: string;
-  responseMeta?: AssistantResponse;
-  isError?: boolean;
+type Turn =
+  | { id: number; kind: "user"; text: string }
+  | { id: number; kind: "answer"; response: AssistantResponse }
+  | { id: number; kind: "failure"; failure: FailureKind; question: string };
+
+/** Staff may not read expenses (backend `expenses:read`), so that prompt is shown locked. */
+const PROMPTS: { text: string; icon: IconName; staffLocked?: boolean }[] = [
+  { text: "How are sales doing today?", icon: "orders" },
+  { text: "Which products are low on stock?", icon: "inventory" },
+  { text: "How much did customers pay this week?", icon: "payments" },
+  { text: "What are my expenses this month?", icon: "expenses", staffLocked: true },
+  { text: "Show my top-selling products.", icon: "products" },
+  { text: "Give me today’s business summary.", icon: "dashboard" },
+];
+
+/** The backend reads the last 10 turns; send only finished question/answer pairs. */
+function history(turns: Turn[]): AssistantMessage[] {
+  return turns.flatMap((t): AssistantMessage[] =>
+    t.kind === "user" ? [{ role: "user", content: t.text }] : t.kind === "answer" ? [{ role: "assistant", content: t.response.content }] : []
+  );
 }
 
-export function AssistantView({
-  orgId,
-  userRole = "owner",
-  token,
-  initialPrompt,
-}: AssistantViewProps) {
-  const [messages, setMessages] = useState<MessageItem[]>([]);
-  const [inputMessage, setInputMessage] = useState("");
-  const [lastPrompt, setLastPrompt] = useState<string | null>(null);
-  const initialSentRef = useRef(false);
-
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+/** Design canvas "26 · BizPilot AI". Read-only; the conversation lives only in memory. */
+export function AssistantView({ orgId, userRole = "staff", token, initialPrompt }: AssistantViewProps) {
+  const staff = userRole !== "owner" && userRole !== "manager";
+  const orgName = useOptionalAuth()?.organizations.find((o) => o.id === orgId)?.display_name;
+  const [turns, setTurns] = useState<Turn[]>([]);
+  const [draft, setDraft] = useState("");
+  const nextId = useRef(1);
+  const endRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
-
-  const suggestedPrompts = getSuggestedPrompts(userRole);
-  const assistantMutation = useAssistantQuery(orgId, token);
-
-  const scrollToBottom = () => {
-    if (typeof messagesEndRef.current?.scrollIntoView === "function") {
-      messagesEndRef.current.scrollIntoView({ behavior: "smooth" });
-    }
-  };
+  const initialSent = useRef(false);
+  const mutation = useAssistantQuery(orgId, token);
+  const busy = mutation.isPending;
 
   useEffect(() => {
-    scrollToBottom();
-  }, [messages, assistantMutation.isPending]);
+    if (typeof endRef.current?.scrollIntoView === "function") endRef.current.scrollIntoView({ behavior: "smooth", block: "end" });
+  }, [turns, busy]);
 
-  useEffect(() => {
-    if (initialPrompt && !initialSentRef.current && messages.length === 0) {
-      initialSentRef.current = true;
-      handleSendMessage(initialPrompt);
-    }
-  }, [initialPrompt]);
-
-  const handleSendMessage = (textToSend?: string) => {
-    const text = (textToSend !== undefined ? textToSend : inputMessage).trim();
-    if (!text || assistantMutation.isPending) return;
-
-    setLastPrompt(text);
-    const userMsgId = `user-${Date.now()}`;
-    const newMessages: MessageItem[] = [
-      ...messages,
-      { id: userMsgId, role: "user", content: text },
-    ];
-    setMessages(newMessages);
-    setInputMessage("");
-
-    // Prepare message payload
-    const queryPayload: AssistantMessage[] = newMessages.map((m) => ({
-      role: m.role,
-      content: m.content,
-    }));
-
-    assistantMutation.mutate(
-      { message: text, conversation_history: queryPayload },
+  function ask(question: string, prior: Turn[] = turns) {
+    const text = question.trim();
+    if (!text || busy) return;
+    const withQuestion: Turn[] = [...prior, { id: nextId.current++, kind: "user", text }];
+    setTurns(withQuestion);
+    setDraft("");
+    mutation.mutate(
+      { message: text, conversation_history: history(prior) },
       {
-        onSuccess: (data: AssistantResponse) => {
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `assistant-${Date.now()}`,
-              role: "assistant",
-              content: data.content,
-              responseMeta: data,
-            },
-          ]);
-        },
-        onError: (err: unknown) => {
-          const errMessage =
-            err instanceof Error ? err.message : "Failed to obtain response from assistant.";
-          setMessages((prev) => [
-            ...prev,
-            {
-              id: `err-${Date.now()}`,
-              role: "assistant",
-              content: errMessage,
-              isError: true,
-            },
-          ]);
-        },
+        onSuccess: (response) => setTurns((cur) => [...cur, { id: nextId.current++, kind: "answer", response }]),
+        onError: (err) => setTurns((cur) => [...cur, { id: nextId.current++, kind: "failure", failure: failureKind(err), question: text }]),
       }
     );
-  };
+  }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
-      handleSendMessage();
+  function retry(failureId: number, question: string) {
+    // Drop the failed attempt (and its question) and ask again from the same point.
+    const idx = turns.findIndex((t) => t.id === failureId);
+    ask(question, turns.slice(0, Math.max(0, idx - 1)));
+  }
+
+  useEffect(() => {
+    if (initialPrompt && !initialSent.current) {
+      initialSent.current = true;
+      ask(initialPrompt, []);
     }
-  };
-
-  const handleRetry = () => {
-    if (lastPrompt) {
-      handleSendMessage(lastPrompt);
-    }
-  };
-
-  const handleClearThread = () => {
-    setMessages([]);
-    setLastPrompt(null);
-  };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialPrompt]);
 
   return (
-    <div className="flex h-full max-h-screen flex-col bg-surface">
-      {/* Header (Stitch Flagship Intelligence Top Bar) */}
-      <header className="flex flex-wrap items-center justify-between border-b border-surface-container-high/60 bg-surface/90 px-6 py-4 shadow-xs backdrop-blur-md">
-        <div>
-          <div className="flex items-center gap-2.5">
-            <BizPilotLogo size={24} className="w-6 h-6" />
-            <h1 className="font-headline-sm text-headline-sm font-semibold tracking-tight text-on-surface">
-              BizPilot Copilot
-            </h1>
-            <span className="rounded-full bg-primary-fixed px-2.5 py-0.5 font-data-badge text-data-badge font-semibold text-primary">
-              Read-Only Business Copilot (P0)
-            </span>
+    <div style={{ display: "flex", flexDirection: "column", flex: 1, minHeight: 0, height: "100%" }}>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, padding: "14px 32px", borderBottom: "1px solid var(--border)", background: "var(--surface)", flexWrap: "wrap" }}>
+        <div style={{ display: "flex", alignItems: "center", gap: 12, minWidth: 0 }}>
+          <span className="orb" aria-hidden="true" />
+          <div style={{ minWidth: 0 }}>
+            <h1 className="t-h3">BizPilot AI</h1>
+            <p className="t-body-sm secondary">Ask questions about your business using your real business data.</p>
           </div>
-          <p className="mt-0.5 font-label-md text-label-md text-on-surface-variant">
-            Grounded in your PostgreSQL business records. Role:{" "}
-            <span className="font-semibold uppercase text-on-surface">{userRole}</span>
-          </p>
         </div>
-
-        {messages.length > 0 && (
-          <button
-            type="button"
-            onClick={handleClearThread}
-            className="rounded-xl border border-outline-variant/60 bg-surface-container-lowest px-3 py-1.5 font-label-md text-label-md font-semibold text-on-surface hover:bg-surface-container transition-colors shadow-xs"
-          >
-            Clear Thread
-          </button>
-        )}
-      </header>
-
-      {/* Main Conversation Container */}
-      <div className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8">
-        <div className="mx-auto max-w-4xl space-y-4">
-          {/* Welcome State when no messages */}
-          {messages.length === 0 && (
-            <div className="rounded-2xl border border-surface-container-high/80 bg-surface-container-lowest p-6 sm:p-8 shadow-xs relative overflow-hidden">
-              <div className="absolute top-0 left-0 right-0 h-1 bg-gradient-to-r from-primary via-secondary to-tertiary" />
-              <div className="max-w-2xl">
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="font-data-badge text-data-badge px-2 py-0.5 rounded bg-surface-container-high text-primary font-semibold">
-                    Read-only assistant
-                  </span>
-                </div>
-                <h2 className="font-headline-lg text-headline-lg font-bold text-on-surface tracking-tight">
-                  Welcome to BizPilot Copilot
-                </h2>
-                <p className="mt-2 font-body-md text-body-md text-on-surface-variant leading-relaxed">
-                  I can answer factual questions about your sales, inventory stock levels,
-                  recorded payments, customer balances, and operational summaries.
-                </p>
-                <div className="mt-4 rounded-xl bg-surface-container-low p-3.5 text-xs text-on-surface-variant flex items-center gap-2 border border-surface-container-high/40">
-                  <span className="font-semibold text-primary font-mono">ℹ️ Note:</span>
-                  <span>
-                    BizPilot AI is strictly read-only. To record orders, adjust inventory, or record payments,
-                    please use the workspace forms.
-                  </span>
-                </div>
-              </div>
-
-              <div className="mt-6">
-                <h3 className="font-label-caps text-label-caps uppercase text-outline tracking-wider text-[11px]">
-                  Suggested Business Questions
-                </h3>
-                <div className="mt-3 grid gap-2.5 sm:grid-cols-2">
-                  {suggestedPrompts.map((prompt) => (
-                    <button
-                      key={prompt}
-                      type="button"
-                      onClick={() => handleSendMessage(prompt)}
-                      className="flex items-center justify-between rounded-xl border border-surface-container-high/70 bg-surface-container-low/60 p-3.5 text-left text-xs font-medium text-on-surface transition hover:border-primary hover:bg-surface-container-high shadow-xs group"
-                    >
-                      <span className="font-body-sm text-body-sm">{prompt}</span>
-                      <span className="text-primary font-bold ml-2 group-hover:translate-x-0.5 transition-transform">
-                        →
-                      </span>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            </div>
-          )}
-
-          {/* Messages List */}
-          {messages.map((msg) => (
-            <div
-              key={msg.id}
-              className={`flex flex-col ${
-                msg.role === "user" ? "items-end" : "items-start"
-              }`}
+        <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap" }}>
+          <span className="badge b-neutral square">
+            <Icon name="lock" />
+            Read-only
+          </span>
+          <span className="badge b-brand square">
+            <Icon name="check" />
+            Grounded in your BizPilot data
+          </span>
+          {turns.length > 0 && (
+            <button
+              type="button"
+              className="btn btn-ghost btn-sm"
+              disabled={busy}
+              onClick={() => {
+                setTurns([]);
+                inputRef.current?.focus();
+              }}
             >
-              <div
-                className={`max-w-2xl rounded-2xl p-4 sm:p-5 shadow-xs ${
-                  msg.role === "user"
-                    ? "bg-primary-container text-on-primary rounded-tr-xs font-body-md shadow-sm"
-                    : msg.isError
-                    ? "border border-error/30 bg-error-container/30 text-on-error-container"
-                    : "border border-surface-container-high/80 bg-surface-container-lowest text-on-surface"
-                }`}
-              >
-                <div className="mb-2 flex items-center justify-between gap-4 text-[11px] opacity-80">
-                  <span className="font-semibold uppercase tracking-wider font-label-caps">
-                    {msg.role === "user" ? "You" : "BizPilot AI"}
-                  </span>
-                  {msg.responseMeta?.model && (
-                    <span className="font-mono text-[10px] text-outline">
-                      {msg.responseMeta.model}
-                    </span>
-                  )}
-                </div>
-
-                <div className="whitespace-pre-wrap font-body-md text-body-md leading-relaxed">
-                  {msg.content}
-                </div>
-
-                {/* Grounding & Provenance Metadata Citation */}
-                {msg.responseMeta && (
-                  <div className="mt-3 border-t border-surface-container-high/60 pt-2.5">
-                    {msg.responseMeta.provenance &&
-                      msg.responseMeta.provenance.length > 0 && (
-                        <div className="flex flex-wrap items-center gap-1.5">
-                          <span className="font-label-md text-[11px] font-medium text-on-surface-variant">
-                            Grounded by:
-                          </span>
-                          {msg.responseMeta.provenance.map((p, idx) => (
-                            <span
-                              key={idx}
-                              className="inline-flex items-center rounded-lg bg-surface-container px-2 py-0.5 font-data-cell text-[10px] font-semibold text-primary border border-outline-variant/40"
-                            >
-                              {p.source_tool}
-                              {p.period_applied ? ` (${p.period_applied})` : ""}
-                            </span>
-                          ))}
-                        </div>
-                      )}
-
-                    {msg.responseMeta.tool_calls &&
-                      msg.responseMeta.tool_calls.some((t) => t.status === "denied") && (
-                        <div className="mt-1.5 inline-flex items-center rounded-lg bg-amber-100 px-2 py-0.5 font-data-badge text-[10px] font-semibold text-amber-900 border border-amber-300">
-                          Role restriction: restricted data omitted
-                        </div>
-                      )}
-                  </div>
-                )}
-              </div>
-            </div>
-          ))}
-
-          {/* Loading Indicator */}
-          {assistantMutation.isPending && (
-            <div className="flex items-start">
-              <div className="flex items-center gap-2 rounded-2xl border border-surface-container-high bg-surface-container-lowest p-4 shadow-xs text-xs font-medium text-on-surface-variant">
-                <span className="h-2 w-2 animate-ping rounded-full bg-primary" />
-                <span>Consulting deterministic business records...</span>
-              </div>
-            </div>
+              <Icon name="plus" size="sm" />
+              New chat
+            </button>
           )}
-
-          {/* Failure & Retry Action */}
-          {assistantMutation.isError && (
-            <div className="rounded-2xl border border-error/30 bg-error-container/20 p-4 text-xs text-on-error-container flex items-center justify-between">
-              <span>
-                Unable to complete request. Please check your connection or try again.
-              </span>
-              <button
-                type="button"
-                onClick={handleRetry}
-                className="ml-3 rounded-lg bg-error-container px-3 py-1 font-semibold text-on-error-container hover:bg-error-container/80 transition-colors"
-              >
-                Retry
-              </button>
-            </div>
-          )}
-
-          <div ref={messagesEndRef} />
         </div>
       </div>
 
-      {/* Input Composer (Stitch Floating Input Ribbon) */}
-      <footer className="border-t border-surface-container-high/60 bg-surface-container-lowest p-4 shadow-sm">
-        <div className="mx-auto max-w-4xl">
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              handleSendMessage();
-            }}
-            className="flex items-center gap-2"
-          >
-            <input
-              ref={inputRef}
-              type="text"
-              value={inputMessage}
-              onChange={(e) => setInputMessage(e.target.value)}
-              onKeyDown={handleKeyDown}
-              disabled={assistantMutation.isPending}
-              placeholder="Ask a question about your sales, stock, customers, or payments..."
-              className="flex-1 rounded-xl border border-outline-variant/60 bg-surface-container-low px-4 py-2.5 font-body-md text-sm text-on-surface placeholder:text-outline shadow-inner focus:border-primary focus:bg-surface-container-lowest focus:outline-none focus:ring-2 focus:ring-primary/10 disabled:opacity-50 transition-all"
-            />
-            <button
-              type="submit"
-              disabled={!inputMessage.trim() || assistantMutation.isPending}
-              className="inline-flex items-center justify-center rounded-xl bg-primary hover:bg-primary-container px-5 py-2.5 font-body-sm text-sm font-semibold text-on-primary shadow-xs transition-all active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Send
-            </button>
-          </form>
-          <p className="mt-2 text-center font-label-md text-[11px] text-outline">
-            BizPilot AI answers are grounded in database evidence. Conversational context is transient.
-          </p>
+      <div style={{ flex: 1, minHeight: 0, overflow: "auto", background: "var(--bg)" }}>
+        <div style={{ maxWidth: 780, margin: "0 auto", padding: "32px 24px 24px", display: "flex", flexDirection: "column", gap: 22 }} aria-live="polite" aria-busy={busy}>
+          {turns.length === 0 && (
+            <div className="page-in" style={{ display: "flex", flexDirection: "column", gap: 24, paddingTop: 32 }}>
+              <div style={{ display: "flex", flexDirection: "column", gap: 14, alignItems: "flex-start" }}>
+                <span className="orb lg pulse" aria-hidden="true" />
+                <h2 className="t-h1">What would you like to know about your business?</h2>
+                <p className="t-body secondary">
+                  I answer from {orgName ? `${orgName}’s` : "your"} orders, inventory, payments and expenses — and I’ll always show where a number came from.
+                </p>
+              </div>
+              <div className="stagger" style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(min(220px, 100%), 1fr))", gap: 10 }}>
+                {PROMPTS.map((p, i) => {
+                  const locked = staff && p.staffLocked;
+                  return (
+                    <button key={p.text} type="button" className="prompt-card" disabled={locked || busy} aria-describedby={locked ? `pl-${i}` : undefined} onClick={() => ask(p.text)}>
+                      <Icon name={p.icon} />
+                      <span style={{ display: "flex", flexDirection: "column", gap: 4 }}>
+                        <span>{p.text}</span>
+                        {locked && (
+                          <span className="t-caption" id={`pl-${i}`} style={{ display: "inline-flex", gap: 4, alignItems: "center" }}>
+                            <Icon name="lock" size="sm" style={{ color: "var(--text-muted)", margin: 0 }} />
+                            Owners &amp; Managers
+                          </span>
+                        )}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+          )}
+
+          {turns.map((t) =>
+            t.kind === "user" ? (
+              <div key={t.id} className="bubble-user reveal">
+                {t.text}
+              </div>
+            ) : (
+              <div key={t.id} style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
+                <span className="orb" aria-hidden="true" />
+                {t.kind === "answer" ? <AnswerCard response={t.response} /> : <FailureNotice kind={t.failure} onRetry={() => retry(t.id, t.question)} disabled={busy} />}
+              </div>
+            )
+          )}
+
+          {busy && (
+            <div style={{ display: "grid", gridTemplateColumns: "28px minmax(0, 1fr)", gap: 12, alignItems: "start" }}>
+              <span className="orb pulse" aria-hidden="true" />
+              <div style={{ display: "flex", flexDirection: "column", gap: 10 }} role="status">
+                <div style={{ display: "flex", alignItems: "center", gap: 10, height: 28 }}>
+                  <span className="dots" aria-hidden="true">
+                    <span />
+                    <span />
+                    <span />
+                  </span>
+                  <span className="t-body-sm secondary">Checking your records…</span>
+                </div>
+                <div className="ai-card" aria-hidden="true">
+                  <div className="ai-card-b">
+                    <span className="skel" style={{ height: 14, width: "70%" }} />
+                    <span className="skel" style={{ height: 14, width: "45%" }} />
+                  </div>
+                </div>
+              </div>
+            </div>
+          )}
+          <div ref={endRef} />
         </div>
-      </footer>
+      </div>
+
+      <div style={{ borderTop: "1px solid var(--border)", background: "var(--surface)", padding: "14px 24px 16px" }}>
+        <form
+          style={{ maxWidth: 780, margin: "0 auto", display: "flex", flexDirection: "column", gap: 8 }}
+          onSubmit={(e) => {
+            e.preventDefault();
+            ask(draft);
+          }}
+        >
+          <div className="ig" style={{ height: 48, borderRadius: 10 }}>
+            <span className="pre plain">
+              <Icon name="ai" style={{ color: "var(--brand-text)" }} />
+            </span>
+            <input ref={inputRef} value={draft} onChange={(e) => setDraft(e.target.value)} placeholder="Ask about sales, stock, customers, payments…" aria-label="Ask BizPilot AI" maxLength={2000} style={{ fontSize: 15 }} />
+            <span className="post plain" style={{ paddingRight: 6 }}>
+              <button type="submit" className="btn btn-primary btn-sm icon-btn" aria-label="Send" disabled={!draft.trim() || busy}>
+                <Icon name="arrowRight" />
+              </button>
+            </span>
+          </div>
+          <p className="t-caption" style={{ textAlign: "center" }}>
+            Read-only. BizPilot AI can’t create or change records. Conversations aren’t saved on this device.
+          </p>
+        </form>
+      </div>
     </div>
   );
 }
