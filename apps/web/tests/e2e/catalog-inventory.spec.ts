@@ -10,7 +10,7 @@ test.describe('Catalog & Inventory Workflows (HARD-002)', () => {
     await page.goto(`/workspace/${TEST_ORG_ID}/catalog`);
 
     // Verify catalog header and existing products
-    await expect(page.locator('h1, h2, table, div')).toContainText(/Catalog|Products|Kagzi Badam/i);
+    await expect(page.locator('body')).toContainText(/Catalog|Products|Kagzi Badam/i);
 
     // Click Add Product button if present
     const addBtn = page.getByRole('button', { name: 'Add product' });

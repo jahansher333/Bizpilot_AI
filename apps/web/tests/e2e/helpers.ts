@@ -5,6 +5,24 @@ export const TEST_ORG_B_ID = '01a0e000-0000-7000-8000-000000000002';
 export const TEST_USER_ID = '01a0e000-0000-7000-8000-000000000010';
 
 export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staff' = 'owner') {
+  // Signed-in session: the app restores it on load by exchanging the stored refresh token
+  // (FIX-008 workspace route guard sends signed-out visitors to /login).
+  await page.addInitScript(() => {
+    window.localStorage.setItem('bizpilot_refresh_token', 'e2e-refresh-token');
+  });
+  await page.route('**/api/auth/refresh', async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        access_token: 'e2e-access-token',
+        refresh_token: 'e2e-refresh-token',
+        token_type: 'bearer',
+        expires_in: 900,
+      }),
+    });
+  });
+
   // Mock auth check / user
   await page.route('**/api/auth/me', async (route) => {
     await route.fulfill({
@@ -67,30 +85,21 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
     });
   });
 
-  // Mock Dashboard
+  // Mock Dashboard (DashboardSummary shape; Staff gets no expenses or net cash)
   await page.route(`**/api/organizations/${TEST_ORG_ID}/dashboard*`, async (route) => {
-    if (role === 'staff') {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          sales: { total_sales_minor: 1500000, total_sales_pkr: '15,000.00', order_count: 3 },
-          payments: { total_collected_minor: 1000000, total_collected_pkr: '10,000.00', payment_count: 2 },
-          expenses: null,
-          net_cash: null,
-        }),
-      });
-      return;
-    }
-
+    const today = new Date().toISOString().slice(0, 10);
+    const restricted = role === 'staff';
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
       body: JSON.stringify({
-        sales: { total_sales_minor: 1500000, total_sales_pkr: '15,000.00', order_count: 3 },
-        payments: { total_collected_minor: 1000000, total_collected_pkr: '10,000.00', payment_count: 2 },
-        expenses: { total_expenses_minor: 200000, total_expenses_pkr: '2,000.00', expense_count: 1 },
-        net_cash: { net_cash_minor: 800000, net_cash_pkr: '8,000.00', status: 'positive' },
+        sales: { order_count: 3, total_sales_minor: 1500000, currency_code: 'PKR' },
+        payments: { payment_count: 2, total_collected_minor: 1000000, currency_code: 'PKR' },
+        expenses: restricted ? null : { expense_count: 1, total_expenses_minor: 200000, currency_code: 'PKR' },
+        net_cash: restricted ? null : { net_cash_minor: 800000, currency_code: 'PKR' },
+        inventory: { low_stock_count: 0, low_stock_threshold: 10, items: [] },
+        recent_activity: [],
+        freshness: { generated_at: new Date().toISOString(), period: 'today', local_start_date: today, local_end_date: today, timezone: 'Asia/Karachi' },
       }),
     });
   });
@@ -109,7 +118,7 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify([{ id: 'cat-01', name: 'Dry Fruits' }]),
+      body: JSON.stringify({ items: [{ id: 'cat-01', name: 'Dry Fruits', status: 'active' }], total: 1, limit: 100, offset: 0 }),
     });
   });
 
@@ -142,6 +151,8 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
             name: 'Kagzi Badam 1kg',
             base_unit: 'pack',
             default_price_minor: 150000,
+            currency_code: 'PKR',
+            status: 'active',
             category_id: 'cat-01',
           },
         ],
@@ -211,11 +222,15 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
         status: 201,
         contentType: 'application/json',
         body: JSON.stringify({
-          id: 'order-01',
-          customer_id: data.customer_id,
-          order_total_minor: 1500000,
-          status: 'confirmed',
-          items: data.items,
+          id: 'order-02',
+          order_number: 'ORD-0042',
+          customer_id: data.customer_id ?? null,
+          ordered_at: new Date().toISOString(),
+          order_total_minor: 150000,
+          currency_code: 'PKR',
+          status: 'active',
+          items: [],
+          created_at: new Date().toISOString(),
         }),
       });
       return;
@@ -227,9 +242,13 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
         items: [
           {
             id: 'order-01',
-            customer_name: 'Al-Madina Traders',
+            order_number: 'ORD-0001',
+            customer_id: null,
+            ordered_at: new Date().toISOString(),
             order_total_minor: 1500000,
-            status: 'confirmed',
+            currency_code: 'PKR',
+            status: 'active',
+            items: [],
             created_at: new Date().toISOString(),
           },
         ],
@@ -261,9 +280,14 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
         items: [
           {
             id: 'pay-01',
+            payment_number: 'PAY-0001',
             amount_minor: 1000000,
             channel: 'bank_transfer',
-            customer_name: 'Al-Madina Traders',
+            customer_id: null,
+            order_id: null,
+            received_at: new Date().toISOString(),
+            status: 'active',
+            currency_code: 'PKR',
             created_at: new Date().toISOString(),
           },
         ],
@@ -307,6 +331,10 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
             amount_minor: 200000,
             payee: 'Lahore Goods Transport',
             payment_method: 'cash',
+            expense_category_id: null,
+            occurred_at: new Date().toISOString(),
+            status: 'active',
+            currency_code: 'PKR',
             created_at: new Date().toISOString(),
           },
         ],
