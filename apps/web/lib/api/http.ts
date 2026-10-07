@@ -39,6 +39,24 @@ export function getStoredRefreshToken(): string | null {
   return storage()?.getItem(REFRESH_TOKEN_KEY) ?? null;
 }
 
+/**
+ * True when a JWT access token is still usable for at least `marginSeconds`. Only the `exp`
+ * claim is read (no verification — the API verifies every request); anything unreadable counts
+ * as expired, so the caller falls back to a refresh.
+ */
+export function isAccessTokenFresh(token: string | null, marginSeconds = 30, nowMs: number = Date.now()): boolean {
+  if (!token) return false;
+  try {
+    const payload = token.split(".")[1];
+    if (!payload) return false;
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
+    const exp = Number(JSON.parse(atob(base64)).exp);
+    return Number.isFinite(exp) && exp * 1000 > nowMs + marginSeconds * 1000;
+  } catch {
+    return false;
+  }
+}
+
 export function storeSessionTokens(accessToken: string, refreshToken: string): void {
   const store = storage();
   store?.setItem(ACCESS_TOKEN_KEY, accessToken);
@@ -59,18 +77,27 @@ export function clearStoredSession(): void {
   store?.removeItem(ACTIVE_ORG_KEY);
 }
 
-let refreshInFlight: Promise<string | null> | null = null;
+export type RefreshOutcome =
+  | { status: "ok"; accessToken: string }
+  /** The API rejected the refresh token (401): the stored session has been cleared. */
+  | { status: "rejected" }
+  /** No stored refresh token, a network error, an aborted request or a server error: the session is kept. */
+  | { status: "failed" };
+
+let refreshInFlight: Promise<RefreshOutcome> | null = null;
+const announcedRejections = new WeakSet<RefreshOutcome>();
 
 /**
- * Exchange the stored refresh token for a new access token.
- * Returns null when no new token could be obtained. Only a rejected refresh token
- * (401) ends the session; network or server errors leave it intact.
+ * The one place the app rotates its refresh token. Single-flight: concurrent callers (page-load
+ * session restore and any request that got a 401) share one /auth/refresh call, so the same
+ * refresh token is never sent twice — the backend treats a reused token as theft and revokes
+ * every session in its family. Only an explicit 401 ends the stored session.
  */
-export function refreshAccessToken(): Promise<string | null> {
+export function refreshSession(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
-    refreshInFlight = (async () => {
+    refreshInFlight = (async (): Promise<RefreshOutcome> => {
       const refreshToken = getStoredRefreshToken();
-      if (!refreshToken) return null;
+      if (!refreshToken) return { status: "failed" };
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/auth/refresh`, {
           method: "POST",
@@ -79,23 +106,33 @@ export function refreshAccessToken(): Promise<string | null> {
         });
         if (res.status === 401) {
           clearStoredSession();
-          if (typeof window !== "undefined") {
-            window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
-          }
-          return null;
+          return { status: "rejected" };
         }
-        if (!res.ok) return null;
+        if (!res.ok) return { status: "failed" };
         const data = (await res.json()) as { access_token: string; refresh_token: string };
         storeSessionTokens(data.access_token, data.refresh_token);
-        return data.access_token;
+        return { status: "ok", accessToken: data.access_token };
       } catch {
-        return null;
+        return { status: "failed" };
       }
     })().finally(() => {
       refreshInFlight = null;
     });
   }
   return refreshInFlight;
+}
+
+/**
+ * For API requests that got a 401: a new access token, or null. When the refresh token was
+ * rejected, SESSION_EXPIRED_EVENT is dispatched once so the AuthProvider signs the user out.
+ */
+export async function refreshAccessToken(): Promise<string | null> {
+  const outcome = await refreshSession();
+  if (outcome.status === "rejected" && !announcedRejections.has(outcome)) {
+    announcedRejections.add(outcome);
+    if (typeof window !== "undefined") window.dispatchEvent(new Event(SESSION_EXPIRED_EVENT));
+  }
+  return outcome.status === "ok" ? outcome.accessToken : null;
 }
 
 function withAuthorization(init: RequestInit, token: string | null): RequestInit {

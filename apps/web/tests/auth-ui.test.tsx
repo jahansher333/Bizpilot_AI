@@ -9,6 +9,7 @@ import { ForgotPasswordForm } from "@/components/auth/forgot-password-form";
 import { ResetPasswordForm } from "@/components/auth/reset-password-form";
 import { OrganizationSetup } from "@/components/auth/organization-setup";
 import { WorkspaceChooser } from "@/components/auth/workspace-chooser";
+import * as httpApi from "@/lib/api/http";
 import * as authApi from "@/lib/api/auth";
 import * as orgApi from "@/lib/api/organizations";
 
@@ -43,12 +44,7 @@ const ORG = {
 
 function mockSignedInSession(orgs: (typeof ORG)[]) {
   localStorage.setItem("bizpilot_refresh_token", "mock-token");
-  vi.spyOn(authApi, "refreshSessionToken").mockResolvedValueOnce({
-    access_token: "mock-access-token",
-    refresh_token: "mock-refresh-token",
-    token_type: "bearer",
-    expires_in: 900,
-  });
+  vi.spyOn(httpApi, "refreshSession").mockResolvedValueOnce({ status: "ok", accessToken: "mock-access-token" });
   vi.spyOn(authApi, "getCurrentUser").mockResolvedValueOnce({
     id: "user-1",
     email: "asad@khantraders.pk",

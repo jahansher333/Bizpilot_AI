@@ -78,18 +78,6 @@ export async function registerUser(payload: RegisterInput): Promise<RegisterResp
   );
 }
 
-export async function refreshSessionToken(refreshToken: string): Promise<AuthTokens> {
-  return request<AuthTokens>(
-    "/api/auth/refresh",
-    {
-      method: "POST",
-      body: JSON.stringify({ refresh_token: refreshToken }),
-    },
-    undefined,
-    false
-  );
-}
-
 export async function logoutUser(
   refreshToken: string,
   token?: string

@@ -2,7 +2,6 @@
 
 import React, { createContext, useContext, useEffect, useState, useCallback, useMemo } from "react";
 import {
-  AuthTokens,
   LoginInput,
   RegisterInput,
   RegisterResponse,
@@ -16,16 +15,18 @@ import {
   getCurrentUser,
   loginUser,
   logoutUser,
-  refreshSessionToken,
   registerUser,
 } from "@/lib/api/auth";
 import {
   ACTIVE_ORG_KEY,
-  REFRESH_TOKEN_KEY,
   SESSION_EXPIRED_EVENT,
   SESSION_TOKENS_EVENT,
   SessionTokensDetail,
   clearStoredSession,
+  getStoredAccessToken,
+  getStoredRefreshToken,
+  isAccessTokenFresh,
+  refreshSession,
   storeSessionTokens,
 } from "@/lib/api/http";
 import {
@@ -64,40 +65,48 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     let isMounted = true;
 
+    function resetSessionState() {
+      setUser(null);
+      setToken(null);
+      setRefreshToken(null);
+      setOrganizations([]);
+      setActiveOrgId(null);
+    }
+
     async function initSession() {
       try {
-        const storedRefreshToken = typeof window !== "undefined"
-          ? localStorage.getItem(REFRESH_TOKEN_KEY)
-          : null;
+        if (!getStoredRefreshToken()) return;
 
-        if (!storedRefreshToken) {
-          if (isMounted) setIsLoading(false);
-          return;
+        // Reuse a still-valid access token instead of rotating the refresh token on every page
+        // load: a rotation whose response is lost (page reloaded or left mid-request) leaves the
+        // browser holding a spent refresh token, and presenting it again makes the API revoke
+        // every session in the family. A 401 later still refreshes through the shared client.
+        let accessToken = getStoredAccessToken();
+        if (!isAccessTokenFresh(accessToken)) {
+          // Shared single-flight refresh: requests that hit a 401 while the page loads join this
+          // same call instead of sending the same refresh token a second time.
+          const outcome = await refreshSession();
+          if (!isMounted) return;
+          if (outcome.status !== "ok") {
+            // "rejected": the API refused the refresh token and the stored session is already cleared.
+            // "failed" (offline, aborted by navigation, server error): keep the stored session so the
+            // next page load can restore it; only this page renders signed out.
+            resetSessionState();
+            return;
+          }
+          accessToken = outcome.accessToken;
         }
 
-        // Attempt refresh
-        const tokenRes: AuthTokens = await refreshSessionToken(storedRefreshToken);
-        if (!isMounted) return;
+        setToken(accessToken);
+        setRefreshToken(getStoredRefreshToken());
 
-        setToken(tokenRes.access_token);
-        setRefreshToken(tokenRes.refresh_token);
-        storeSessionTokens(tokenRes.access_token, tokenRes.refresh_token);
-
-        // Fetch user and orgs
-        const [me, orgs] = await Promise.all([
-          getCurrentUser(tokenRes.access_token),
-          listOrganizations(tokenRes.access_token),
-        ]);
-
+        const [me, orgs] = await Promise.all([getCurrentUser(accessToken!), listOrganizations(accessToken!)]);
         if (!isMounted) return;
         setUser(me);
         setOrganizations(orgs);
 
         // Restore active org
-        const storedOrgId = typeof window !== "undefined"
-          ? localStorage.getItem(ACTIVE_ORG_KEY)
-          : null;
-
+        const storedOrgId = typeof window !== "undefined" ? localStorage.getItem(ACTIVE_ORG_KEY) : null;
         if (storedOrgId && orgs.some((o) => o.id === storedOrgId)) {
           setActiveOrgId(storedOrgId);
         } else if (orgs.length > 0) {
@@ -107,15 +116,10 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           }
         }
       } catch {
-        // Clear invalid session
-        clearStoredSession();
-        if (isMounted) {
-          setUser(null);
-          setToken(null);
-          setRefreshToken(null);
-          setOrganizations([]);
-          setActiveOrgId(null);
-        }
+        // Loading the profile failed (e.g. the request was aborted by navigating away, or the
+        // network dropped). Never wipe the stored session for that: a rejected refresh token is
+        // handled by the shared client, which clears it and signs the user out.
+        if (isMounted) resetSessionState();
       } finally {
         if (isMounted) setIsLoading(false);
       }
