@@ -13,12 +13,9 @@ import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
 export { ACCESS_TOKEN_KEY, getStoredAccessToken } from "@/lib/api/http";
 
-export class ApiError extends Error {
-  constructor(public status: number, message: string) {
-    super(message);
-    this.name = "ApiError";
-  }
-}
+import { ApiError } from "./errors";
+
+export { ApiError };
 
 /**
  * Public auth endpoints (login, register, refresh, recovery) pass `authenticated: false`

@@ -8,17 +8,9 @@ import {
 } from "@/lib/schemas/catalog";
 import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
-export class ApiError extends Error {
-  status: number;
-  code?: string;
+import { ApiError } from "./errors";
 
-  constructor(message: string, status: number, code?: string) {
-    super(message);
-    this.name = "ApiError";
-    this.status = status;
-    this.code = code;
-  }
-}
+export { ApiError };
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -38,7 +30,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
       errorMsg = res.statusText || errorMsg;
     }
 
-    throw new ApiError(errorMsg, res.status, errorCode);
+    throw new ApiError(res.status, errorMsg, errorCode);
   }
   return (await res.json()) as T;
 }

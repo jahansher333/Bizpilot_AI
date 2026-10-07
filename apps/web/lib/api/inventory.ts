@@ -28,7 +28,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
       errorMsg = res.statusText || errorMsg;
     }
 
-    throw new ApiError(errorMsg, res.status, errorCode);
+    throw new ApiError(res.status, errorMsg, errorCode);
   }
   return (await res.json()) as T;
 }

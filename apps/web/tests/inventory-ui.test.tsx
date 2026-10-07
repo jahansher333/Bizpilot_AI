@@ -380,7 +380,7 @@ describe("Inventory Frontend Slice (INV-005)", () => {
     });
 
     it("offers opening stock when the product has no balance yet", async () => {
-      vi.mocked(inventoryApi.fetchBalance).mockRejectedValue(new catalogApi.ApiError("Not found", 404));
+      vi.mocked(inventoryApi.fetchBalance).mockRejectedValue(new catalogApi.ApiError(404, "Not found"));
       renderWithQueryClient(<StockDetail orgId="org-1" productId={mockProducts[0].id} userRole="owner" />);
       expect(await screen.findByRole("button", { name: /set opening stock/i })).toBeInTheDocument();
       expect(screen.getByText("No stock recorded yet.")).toBeInTheDocument();

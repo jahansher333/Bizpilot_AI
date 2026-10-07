@@ -241,7 +241,7 @@ describe("CAT-003: Catalog Frontend Slice", () => {
   // ============================================================================
   describe("ApiError Handling", () => {
     it("correctly constructs ApiError with status and code", () => {
-      const err = new ApiError("A product with code already exists", 409, "CONFLICT");
+      const err = new ApiError(409, "A product with code already exists", "CONFLICT");
       expect(err.message).toBe("A product with code already exists");
       expect(err.status).toBe(409);
       expect(err.code).toBe("CONFLICT");
@@ -434,7 +434,7 @@ describe("CAT-003: Catalog Frontend Slice", () => {
 
     it("shows a duplicate code from the server on the code field", async () => {
       mockCatalog();
-      vi.mocked(catalogApi.createProduct).mockRejectedValue(new ApiError("Product code already exists", 409, "CONFLICT"));
+      vi.mocked(catalogApi.createProduct).mockRejectedValue(new ApiError(409, "Product code already exists", "CONFLICT"));
       renderWithQueryClient(<ProductSheet organizationId="org-100" open onClose={vi.fn()} />);
       fireEvent.change(screen.getByLabelText("Product name"), { target: { value: "Green Tea" } });
       fireEvent.change(screen.getByLabelText("Product code"), { target: { value: "TEA-001" } });
