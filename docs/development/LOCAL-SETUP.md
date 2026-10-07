@@ -58,10 +58,17 @@ docker compose exec api alembic current
 
 ### 4. Running Tests
 
-Run backend tests on the host:
+Run backend tests on the host. Database tests need a local, disposable database in
+`TEST_DATABASE_URL` (they are skipped without one; see `tests/README.md`). With the compose
+PostgreSQL running:
 ```bash
+docker compose exec postgres createdb -U bizpilot_dev bizpilot_test
+export TEST_DATABASE_URL=postgresql://bizpilot_dev:bizpilot_dev_password@localhost:5432/bizpilot_test
+BIZPILOT_DATABASE__URL=$TEST_DATABASE_URL alembic upgrade head
 pytest
 ```
+Always pass `BIZPILOT_DATABASE__URL` explicitly to `alembic`: otherwise it reads the repo-root
+`.env`, which may point at a shared database.
 
 Run frontend tests on the host:
 ```bash

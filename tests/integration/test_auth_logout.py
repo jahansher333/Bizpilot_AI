@@ -299,7 +299,7 @@ async def test_concurrent_logout_vs_refresh_on_same_token(
 
 
 @pytest.mark.asyncio
-async def test_concurrent_simultaneous_logouts_on_same_token(test_app: FastAPI) -> None:
+async def test_concurrent_simultaneous_logouts_on_same_token(test_app: FastAPI, session_db_url: str) -> None:
     """Verify two simultaneous logouts presenting the same token both succeed cleanly."""
     email = f"race_duallo_{uuid.uuid4().hex[:8]}@example.com"
     password = "ValidSecretPassword123!"

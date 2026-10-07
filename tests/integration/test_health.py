@@ -21,7 +21,7 @@ def test_healthz_liveness(test_app) -> None:
         assert response_alt.json() == {"status": "ok"}
 
 
-def test_readyz_readiness(test_app) -> None:
+def test_readyz_readiness(test_app, session_db_url: str) -> None:
     with TestClient(test_app) as client:
         response = client.get("/readyz")
         # In real connected test environment, ready returns 200

@@ -210,6 +210,7 @@ async def test_unrelated_user_session_unaffected_by_password_reset(
 @pytest.mark.asyncio
 async def test_concurrent_reset_password_same_token_live_postgresql(
     test_app: FastAPI,
+    session_db_url: str,
     test_delivery_adapter: InMemoryPasswordResetDeliveryAdapter,
 ) -> None:
     """Live PostgreSQL concurrency race:

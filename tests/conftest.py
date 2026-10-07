@@ -55,7 +55,8 @@ from app.main import create_app
 def test_settings() -> Settings:
     return Settings(
         environment="test",
-        database={"url": "postgresql://test_user:test_password@localhost/bizpilot_test"},
+        # The local test database when one is configured, else the placeholder (DB tests then skip).
+        database={"url": _TEST_DATABASE_URL},
         # High auth rate limits keep unrelated live-database tests deterministic across runs;
         # tests/integration/test_auth_rate_limit.py builds its own app with low limits.
         auth={
@@ -104,7 +105,7 @@ async def async_client(test_app: FastAPI) -> AsyncIterator[httpx.AsyncClient]:
 def session_db_url() -> str:
     url = os.environ.get("BIZPILOT_DATABASE__URL")
     if not url or "test_user:test_password" in url:
-        pytest.skip("No real isolated test database available in BIZPILOT_DATABASE__URL")
+        pytest.skip("No local test database: set TEST_DATABASE_URL (see tests/README.md)")
     return normalize_database_url(url)
 
 
