@@ -140,6 +140,14 @@ Design items deliberately not built because the backend has no support yet: the 
 - Backend: only the R5 change was re-tested (customer balances, AI read services and app routes: 16 passed). A full backend run has not been recorded since FIX-006.
 - No push was performed.
 
+## Verification Recorded (2026-10-08, HARD-008 preparation)
+
+- Backend full suite against a local PostgreSQL 16 (migrated to `0014_auth_rate_limits`): 809 passed, 1 failed. The failure was a real deadlock between `/auth/refresh` and `/auth/logout-all` (opposite row-lock order); refresh now locks the user row before the token row. After the fix: auth, security and unit suites 607 passed; logout race tests passed three runs in a row.
+- Production images: building and running them found three runtime dependencies the API imported but `pyproject.toml` did not declare (`greenlet` via `sqlalchemy[asyncio]`, `openai`, `openai-agents`). With those added: migration job, health/readiness, register/login, CORS, per-IP limiting behind `X-Forwarded-For`, and a browser login through both containers all worked.
+- Final full backend run against a fresh PostgreSQL after both fixes: **810 passed, 0 failed, 0 skipped**.
+- Web: TypeScript clean; Vitest 23 files, 204 passed; Playwright E2E 33 passed.
+- CI workflow is valid YAML but has not run (no remote). No push was performed.
+
 ## Next Controlled Step
 
 HARD-008 (release gate) needs explicit human approval. No task advances automatically from this file.
@@ -148,15 +156,16 @@ HARD-008 (release gate) needs explicit human approval. No task advances automati
 
 Resolved since 2026-10-03: unverified marketing copy (FIX-007), hard-coded `userRole="owner"` and the missing workspace route guard (FIX-008).
 
+Resolved on 2026-10-08 (HARD-008 preparation, founder decisions: host on Azure, hide balances from Staff, SMTP via Brevo/SendGrid/Resend): Staff can no longer read customer balances through the AI; expense date filters use the business timezone; per-IP login limit and pruning of expired rate-limit rows; production Dockerfiles and an Azure deployment draft; a CI workflow; one shared web `ApiError`; DB-only tests now skip without a test database; deprecated 422 constant replaced.
 
-- Security decision: the AI tool `get_customer_balance` requires only `customers:read`, so Staff can ask the AI for a customer's balance, while the Customers page (R5, `dashboard:read_operational`) hides balances from Staff. One of the two needs to change.
-- Expense date filters (`start_date`/`end_date`) are applied as UTC days, so "This month" can include or miss expenses from the first five hours of a month in Pakistan time.
-- A full backend test run should be recorded before release (last full run predates FIX-006).
+
+- The CI workflow has not run yet (the repository has no remote).
+- Security defaults to confirm: per-IP login limit of 50 failures per 15 minutes; `FORWARDED_ALLOW_IPS="*"` in the API image (safe only while Azure ingress is the only way in).
+- A real SMTP account must be configured and tested.
+- Monitoring/alerting, backups and AI provider data terms remain open (see `docs/release/AZURE-DEPLOYMENT.md`).
+- The local `.env` points the dev API at the shared Neon database; local development should use the compose PostgreSQL.
 - Invitations require the invitee to already have an account, so an Owner can still tell whether an email is registered; inviting unregistered emails is a new feature needing a product decision.
-- No per-IP limit across many emails on login, and rate-limit rows are not pruned.
 - Tokens remain in `localStorage` (founder decision 2026-10-03); moving to httpOnly cookies is a later security task.
-- Error parsing is still duplicated across web API modules (nine `ApiError` classes in `apps/web/lib/api`).
-- No production Dockerfiles exist; only `Dockerfile.dev` for API and web.
 
 ## Deferred Decisions
 
