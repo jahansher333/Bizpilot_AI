@@ -25,7 +25,12 @@ PASSWORD = "ValidSecretPassword123!"
 @pytest.fixture
 def limited_settings(test_settings: Settings) -> Settings:
     auth = test_settings.auth.model_copy(
-        update={"login_max_failures": 3, "recovery_max_requests": 3, "rate_limit_window_minutes": 15}
+        update={
+            "login_max_failures": 3,
+            "login_ip_max_failures": 10,
+            "recovery_max_requests": 3,
+            "rate_limit_window_minutes": 15,
+        }
     )
     return test_settings.model_copy(update={"auth": auth})
 
@@ -185,3 +190,46 @@ async def test_rate_limit_rows_store_no_raw_subject(limited_app: FastAPI, db_ses
         assert email not in row.key_hash
         assert "203.0.113.60" not in row.key_hash
         assert len(row.key_hash) == 64
+
+
+@pytest.mark.asyncio
+async def test_login_blocked_per_ip_across_many_emails(limited_app: FastAPI) -> None:
+    """Ten failures spread over ten emails exhaust the per-IP limit; another IP is unaffected."""
+    async with _client(limited_app) as client:
+        victim = await _register(client)
+        for _ in range(10):
+            sprayed = f"spray_{uuid.uuid4().hex[:8]}@example.com"
+            resp = await client.post("/api/auth/login", json={"email": sprayed, "password": "WrongPassword999!"})
+            assert resp.status_code == 401
+
+        blocked = await client.post("/api/auth/login", json={"email": victim, "password": PASSWORD})
+        assert blocked.status_code == 429
+
+    async with _client(limited_app, ip="198.51.100.7") as other:
+        ok = await other.post("/api/auth/login", json={"email": victim, "password": PASSWORD})
+        assert ok.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_expired_rate_limit_rows_are_pruned(limited_settings: Settings, db_session: AsyncSession) -> None:
+    start = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)
+    now = {"value": start}
+    limiter = AuthRateLimiter(db_session, limited_settings, clock=lambda: now["value"])
+
+    email = f"old_{uuid.uuid4().hex[:8]}@example.com"
+    ip = f"203.0.113.{uuid.uuid4().int % 250}"
+    old_key = rate_limit_key_hash(RateLimitScope.FORGOT_PASSWORD, email)
+    new_key = rate_limit_key_hash(RateLimitScope.RESET_PASSWORD, ip)
+
+    assert await limiter.consume_forgot_password(email)
+    now["value"] = start + timedelta(minutes=16)
+    assert await limiter.consume_reset_password(ip)
+
+    remaining = set(
+        (
+            await db_session.execute(
+                select(AuthRateLimitBucket.key_hash).where(AuthRateLimitBucket.key_hash.in_([old_key, new_key]))
+            )
+        ).scalars().all()
+    )
+    assert remaining == {new_key}

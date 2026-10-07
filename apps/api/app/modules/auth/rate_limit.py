@@ -2,11 +2,13 @@
 
 Policy (thresholds configurable via AuthenticationSettings):
 - login: failed attempts per (email, client IP); a successful login clears the counter.
+- login: failed attempts per client IP across all emails (stops one IP spraying many accounts);
+  not cleared by a successful login.
 - forgot-password: requests per email, across all client IPs (limits mail volume to one inbox).
 - reset-password: requests per client IP.
 
 Rejections are uniform 429 responses that never reveal whether an account exists.
-Subjects are stored only as SHA-256 digests.
+Subjects are stored only as SHA-256 digests. Rows whose window has elapsed are pruned on writes.
 """
 
 from __future__ import annotations
@@ -30,6 +32,7 @@ RATE_LIMIT_MESSAGE = "Too many attempts. Please wait a few minutes and try again
 
 class RateLimitScope(StrEnum):
     LOGIN_FAILURE = "login_failure"
+    LOGIN_IP_FAILURE = "login_ip_failure"
     FORGOT_PASSWORD = "forgot_password"
     RESET_PASSWORD = "reset_password"
 
@@ -57,6 +60,7 @@ class AuthRateLimiter:
         self._session = session
         self._window = timedelta(minutes=cfg.auth.rate_limit_window_minutes)
         self._login_max_failures = cfg.auth.login_max_failures
+        self._login_ip_max_failures = cfg.auth.login_ip_max_failures
         self._recovery_max_requests = cfg.auth.recovery_max_requests
         self._clock = clock
 
@@ -67,10 +71,14 @@ class AuthRateLimiter:
         count = await self._current_count(RateLimitScope.LOGIN_FAILURE, key)
         if count >= self._login_max_failures:
             raise RateLimitException(RATE_LIMIT_MESSAGE)
+        ip_key = rate_limit_key_hash(RateLimitScope.LOGIN_IP_FAILURE, client_ip)
+        if await self._current_count(RateLimitScope.LOGIN_IP_FAILURE, ip_key) >= self._login_ip_max_failures:
+            raise RateLimitException(RATE_LIMIT_MESSAGE)
 
     async def record_login_failure(self, email: str, client_ip: str) -> None:
         key = rate_limit_key_hash(RateLimitScope.LOGIN_FAILURE, email, client_ip)
         await self._hit(RateLimitScope.LOGIN_FAILURE, key)
+        await self._hit(RateLimitScope.LOGIN_IP_FAILURE, rate_limit_key_hash(RateLimitScope.LOGIN_IP_FAILURE, client_ip))
 
     async def clear_login_failures(self, email: str, client_ip: str) -> None:
         key = rate_limit_key_hash(RateLimitScope.LOGIN_FAILURE, email, client_ip)
@@ -110,8 +118,15 @@ class AuthRateLimiter:
             return 0
         return row.attempt_count
 
+    async def prune_expired(self) -> None:
+        """Delete counters whose window has elapsed; they would restart at 1 anyway."""
+        await self._session.execute(
+            delete(AuthRateLimitBucket).where(AuthRateLimitBucket.updated_at <= self._clock() - self._window)
+        )
+
     async def _hit(self, scope: RateLimitScope, key_hash: str) -> int:
         """Atomically increment the counter, restarting it when the window has elapsed."""
+        await self.prune_expired()
         now = self._clock()
         window_expired = AuthRateLimitBucket.window_started_at <= now - self._window
         stmt = (

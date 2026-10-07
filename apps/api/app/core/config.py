@@ -47,6 +47,8 @@ class AuthenticationSettings(BaseModel):
     password_reset_token_minutes: int = Field(default=15, ge=1, le=1440)
     rate_limit_window_minutes: int = Field(default=15, ge=1, le=1440)
     login_max_failures: int = Field(default=5, ge=1, le=1000)
+    # Failed logins from one client IP across all emails; generous so shared shop/office IPs still work.
+    login_ip_max_failures: int = Field(default=50, ge=1, le=10000)
     recovery_max_requests: int = Field(default=5, ge=1, le=1000)
 
     @model_validator(mode="after")
@@ -163,6 +165,7 @@ class Settings(BaseSettings):
                 "bizpilot_auth__refresh_token_days",
                 "bizpilot_auth__rate_limit_window_minutes",
                 "bizpilot_auth__login_max_failures",
+                "bizpilot_auth__login_ip_max_failures",
                 "bizpilot_auth__recovery_max_requests",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_email__smtp_host", "bizpilot_email__smtp_port",
