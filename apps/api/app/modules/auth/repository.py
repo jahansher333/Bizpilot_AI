@@ -58,7 +58,8 @@ class AuthRepository:
 
     async def get_user_by_id_for_update(self, user_id: uuid.UUID) -> Optional[User]:
         """Fetch a User by primary key UUID under row-level lock."""
-        stmt = select(User).where(User.id == user_id).with_for_update()
+        # populate_existing: return the locked row's current values, not an earlier unlocked read.
+        stmt = select(User).where(User.id == user_id).with_for_update().execution_options(populate_existing=True)
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
@@ -168,6 +169,7 @@ class AuthRepository:
             select(RefreshToken)
             .where(RefreshToken.token_hash == token_hash)
             .with_for_update()
+            .execution_options(populate_existing=True)
         )
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()

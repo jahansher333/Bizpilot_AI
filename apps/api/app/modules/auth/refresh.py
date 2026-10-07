@@ -56,6 +56,13 @@ class RefreshService:
         token_hash = hash_refresh_token(raw_token)
         now = datetime.now(timezone.utc)
 
+        # Lock order is user row, then token row: the same order as logout-all, so a refresh racing
+        # a logout-all serializes instead of deadlocking. The unlocked read only finds the owner.
+        candidate = await self._repository.get_refresh_token_by_hash(token_hash)
+        if candidate is None:
+            raise AuthenticationException("Invalid or expired refresh token")
+        user = await self._repository.get_user_by_id_for_update(candidate.user_id)
+
         # Row-level locking protects against concurrent double-spend race conditions
         token = await self._repository.get_refresh_token_by_hash_for_update(token_hash)
         if token is None:
@@ -70,8 +77,7 @@ class RefreshService:
         if token.expires_at <= now:
             raise AuthenticationException("Invalid or expired refresh token")
 
-        # Verify associated user account state under row-level lock
-        user = await self._repository.get_user_by_id_for_update(token.user_id)
+        # Verify associated user account state (row locked above)
         if user is None:
             raise AuthenticationException("Invalid or expired refresh token")
 
