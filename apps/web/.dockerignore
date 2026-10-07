@@ -1,0 +1,13 @@
+node_modules
+.next
+coverage
+test-results
+playwright-report
+tests
+.env
+.env.*
+!.env.example
+*.tsbuildinfo
+playwright.config.ts
+playwright.smoke.config.ts
+vitest.config.ts
