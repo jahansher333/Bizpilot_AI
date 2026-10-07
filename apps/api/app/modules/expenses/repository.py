@@ -10,6 +10,7 @@ from sqlalchemy import and_, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.errors import ConflictException, NotFoundException, ValidationException
+from app.modules.dashboard.timezone import get_zone_info
 from app.modules.expenses.enums import ExpenseCategoryStatus, ExpensePaymentMethod, ExpenseStatus
 from app.modules.expenses.models import Expense, ExpenseCategory
 
@@ -200,8 +201,13 @@ class ExpenseRepository:
         end_date: date | None = None,
         limit: int = 100,
         offset: int = 0,
+        timezone_name: str | None = None,
     ) -> tuple[Sequence[Expense], int]:
-        """List expenses with optional filters and pagination."""
+        """List expenses with optional filters and pagination.
+
+        start_date and end_date are calendar days in the business timezone (Asia/Karachi by default).
+        """
+        tz = get_zone_info(timezone_name)
         base_filters = [Expense.organization_id == organization_id]
 
         if status:
@@ -209,10 +215,10 @@ class ExpenseRepository:
         if category_id:
             base_filters.append(Expense.expense_category_id == category_id)
         if start_date:
-            start_dt = datetime.combine(start_date, time.min, tzinfo=timezone.utc)
+            start_dt = datetime.combine(start_date, time.min, tzinfo=tz).astimezone(timezone.utc)
             base_filters.append(Expense.occurred_at >= start_dt)
         if end_date:
-            end_dt = datetime.combine(end_date, time.max, tzinfo=timezone.utc)
+            end_dt = datetime.combine(end_date, time.max, tzinfo=tz).astimezone(timezone.utc)
             base_filters.append(Expense.occurred_at <= end_dt)
 
         count_stmt = select(func.count(Expense.id)).where(and_(*base_filters))
@@ -235,10 +241,12 @@ class ExpenseRepository:
         self,
         organization_id: uuid.UUID,
         target_date: date,
+        timezone_name: str | None = None,
     ) -> tuple[int, int]:
-        """Calculate total amount_minor and count of active expenses for a given day."""
-        start_dt = datetime.combine(target_date, time.min, tzinfo=timezone.utc)
-        end_dt = datetime.combine(target_date, time.max, tzinfo=timezone.utc)
+        """Calculate total amount_minor and count of active expenses for a business-timezone day."""
+        tz = get_zone_info(timezone_name)
+        start_dt = datetime.combine(target_date, time.min, tzinfo=tz).astimezone(timezone.utc)
+        end_dt = datetime.combine(target_date, time.max, tzinfo=tz).astimezone(timezone.utc)
 
         stmt = select(
             func.coalesce(func.sum(Expense.amount_minor), 0),

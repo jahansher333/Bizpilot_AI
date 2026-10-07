@@ -1,7 +1,8 @@
 """PostgreSQL integration tests for Expense categories and Expenses persistence (EXP-001)."""
 
 import uuid
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
+from zoneinfo import ZoneInfo
 import pytest
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
@@ -182,7 +183,7 @@ async def test_repository_list_and_daily_totals(db_session: AsyncSession):
     cat2 = await cat_repo.create(org.id, "Tea & Refreshments")
 
     now = datetime.now(timezone.utc)
-    today = now.date()
+    today = now.astimezone(ZoneInfo("Asia/Karachi")).date()
 
     e1 = await exp_repo.create(
         organization_id=org.id,
@@ -211,3 +212,32 @@ async def test_repository_list_and_daily_totals(db_session: AsyncSession):
     daily_sum, count = await exp_repo.get_daily_total(org.id, today)
     assert daily_sum == 120000  # 100000 + 20000
     assert count == 2
+
+
+@pytest.mark.asyncio
+async def test_expense_date_filters_use_the_business_timezone(db_session: AsyncSession):
+    """01:00 on 1 Nov in Karachi is 20:00 on 31 Oct in UTC: it belongs to November for the business."""
+    org = await _create_test_org(db_session, "Timezone Org")
+    cat = await ExpenseCategoryRepository(db_session).create(org.id, "Rent")
+    exp_repo = ExpenseRepository(db_session)
+
+    early_november = await exp_repo.create(
+        organization_id=org.id,
+        amount_minor=50000,
+        expense_category_id=cat.id,
+        occurred_at=datetime(2026, 10, 31, 20, 0, tzinfo=timezone.utc),
+    )
+
+    november, november_total = await exp_repo.list(
+        org.id, start_date=date(2026, 11, 1), end_date=date(2026, 11, 30), timezone_name="Asia/Karachi"
+    )
+    assert november_total == 1
+    assert november[0].id == early_november.id
+
+    _, october_total = await exp_repo.list(
+        org.id, start_date=date(2026, 10, 1), end_date=date(2026, 10, 31), timezone_name="Asia/Karachi"
+    )
+    assert october_total == 0
+
+    assert await exp_repo.get_daily_total(org.id, date(2026, 11, 1), "Asia/Karachi") == (50000, 1)
+    assert await exp_repo.get_daily_total(org.id, date(2026, 10, 31), "Asia/Karachi") == (0, 0)

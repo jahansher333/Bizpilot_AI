@@ -23,6 +23,7 @@ from app.modules.expenses.schemas import (
     ExpenseResponseDTO,
     ExpenseVoidDTO,
 )
+from app.modules.dashboard.timezone import get_zone_info
 from app.modules.expenses.service import ExpenseService
 from app.modules.organizations.context import RequestContext, require_permission
 from app.modules.organizations.permissions import Permission
@@ -194,6 +195,7 @@ async def list_expenses(
         end_date=end_date,
         limit=limit,
         offset=offset,
+        timezone_name=context.organization.timezone,
     )
     return ExpenseListResponseDTO(
         items=[ExpenseResponseDTO.model_validate(e) for e in items],
@@ -212,14 +214,15 @@ async def list_expenses(
 )
 async def get_daily_total(
     organization_id: uuid.UUID,
-    target_date: Optional[date] = Query(None, description="Target date (defaults to today UTC)"),
+    target_date: Optional[date] = Query(None, description="Target date in the business timezone (defaults to today there)"),
     context: RequestContext = Depends(require_permission(Permission.EXPENSES_READ)),
     session: AsyncSession = Depends(get_session),
 ) -> DailyExpenseTotalDTO:
     from datetime import timezone, datetime
+    tz = get_zone_info(context.organization.timezone)
     service = ExpenseService(session=session, organization_id=context.organization_id)
-    effective_date = target_date or datetime.now(timezone.utc).date()
-    return await service.get_daily_expense_total(effective_date, context.role)
+    effective_date = target_date or datetime.now(timezone.utc).astimezone(tz).date()
+    return await service.get_daily_expense_total(effective_date, context.role, tz.key)
 
 
 @expense_router.get(

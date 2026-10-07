@@ -216,6 +216,7 @@ class ExpenseService:
         end_date: date | None = None,
         limit: int = 100,
         offset: int = 0,
+        timezone_name: str | None = None,
     ) -> tuple[Sequence[Expense], int]:
         """List expenses with optional filters and pagination."""
         check_permission(actor_role, Permission.EXPENSES_READ)
@@ -227,16 +228,20 @@ class ExpenseService:
             end_date=end_date,
             limit=limit,
             offset=offset,
+            timezone_name=timezone_name,
         )
 
     async def get_daily_expense_total(
         self,
         target_date: date,
         actor_role: str | MemberRole,
+        timezone_name: str | None = None,
     ) -> DailyExpenseTotalDTO:
         """Fetch active daily expense total for dashboard/reporting."""
         check_permission(actor_role, Permission.EXPENSES_READ)
-        total_minor, count = await self._expense_repo.get_daily_total(self._organization_id, target_date)
+        total_minor, count = await self._expense_repo.get_daily_total(
+            self._organization_id, target_date, timezone_name
+        )
         return DailyExpenseTotalDTO(
             date=target_date.isoformat(),
             total_minor=total_minor,
