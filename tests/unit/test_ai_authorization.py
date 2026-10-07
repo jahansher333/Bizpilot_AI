@@ -57,7 +57,6 @@ def test_staff_permitted_for_operational_tools() -> None:
     operational_tools = [
         "get_sales_summary",
         "get_inventory_status",
-        "get_customer_balance",
         "get_order_details",
         "get_top_products",
         "get_payment_summary",
@@ -79,6 +78,17 @@ def test_staff_strictly_denied_for_expense_summary() -> None:
     assert error.code == ToolErrorCode.AUTHORIZATION_DENIED
     assert "expenses:read" in error.details["required_permission"]
     assert "staff" in error.details["role"]
+
+
+def test_staff_denied_customer_balance_like_the_customers_page() -> None:
+    ctx = make_context(MemberRole.STAFF)
+    authorized, error = AIToolAuthorizationWrapper.check_tool_authorization(
+        ctx, "get_customer_balance"
+    )
+    assert authorized is False
+    assert error is not None
+    assert error.code == ToolErrorCode.AUTHORIZATION_DENIED
+    assert error.details["required_permission"] == "dashboard:read_operational"
 
 
 def test_unknown_unapproved_tool_rejected() -> None:

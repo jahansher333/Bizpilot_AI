@@ -36,7 +36,7 @@ const CAPABILITIES: [string, string, string, string][] = [
   ["Void orders, payments and expenses", "Yes", "—", "—"],
   ["See and record expenses", "Yes", "Yes", "—"],
   ["Dashboard financials (expenses, net cash)", "Yes", "Yes", "—"],
-  ["Ask BizPilot AI (read-only; Staff without expenses)", "Yes", "Yes", "Limited"],
+  ["Ask BizPilot AI (read-only; Staff without expenses or balances)", "Yes", "Yes", "Limited"],
   ["Invite members and change roles", "Yes", "—", "—"],
 ];
 const CAP_COLOR: Record<string, string> = { Yes: "var(--success)", "—": "var(--text-muted)", Limited: "var(--warning)" };

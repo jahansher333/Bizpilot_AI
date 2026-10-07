@@ -24,7 +24,8 @@ logger = logging.getLogger("bizpilot.ai.auth")
 TOOL_PERMISSIONS: dict[str, Permission] = {
     "get_sales_summary": Permission.ORDERS_READ,
     "get_inventory_status": Permission.INVENTORY_READ,
-    "get_customer_balance": Permission.CUSTOMERS_READ,
+    # Same rule as GET /customers/balances: balances are financial, so Staff cannot see them.
+    "get_customer_balance": Permission.DASHBOARD_READ_OPERATIONAL,
     "get_order_details": Permission.ORDERS_READ,
     "get_top_products": Permission.ORDERS_READ,
     "get_expense_summary": Permission.EXPENSES_READ,

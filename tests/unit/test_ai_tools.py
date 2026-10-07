@@ -79,9 +79,10 @@ def test_available_tools_role_filtering() -> None:
 
     staff_ctx = make_context(MemberRole.STAFF)
     staff_tools = AIToolRegistry.get_available_tools(staff_ctx)
-    assert len(staff_tools) == 7
+    assert len(staff_tools) == 6
     staff_tool_names = {t["function"]["name"] for t in staff_tools}
     assert "get_expense_summary" not in staff_tool_names
+    assert "get_customer_balance" not in staff_tool_names
 
 
 @pytest.mark.asyncio
