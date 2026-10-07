@@ -66,7 +66,7 @@ class ValidationException(AppException):
         super().__init__(
             message=message,
             code=ErrorCode.VALIDATION_ERROR,
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             details=details,
         )
 
@@ -173,7 +173,7 @@ async def validation_exception_handler(
     return build_error_response(
         code=ErrorCode.VALIDATION_ERROR,
         message="Request validation failed",
-        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         correlation_id=_get_correlation_id(request),
         details=details,
     )
