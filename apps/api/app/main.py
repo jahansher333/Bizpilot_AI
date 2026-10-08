@@ -8,7 +8,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.health import router as health_router
 from app.api.router import build_api_router
-from app.core.config import Settings, get_settings
+from app.core.config import EnvironmentMode, Settings, get_settings
 from app.core.errors import register_error_handlers
 from app.core.logging import configure_logging
 from app.core.middleware import CorrelationMiddleware
@@ -57,10 +57,15 @@ def create_app(
 ) -> FastAPI:
     runtime_settings = settings or get_settings()
     configure_logging(runtime_settings.logging)
+    # The interactive docs and the OpenAPI schema map every endpoint; production does not serve them.
+    expose_docs = runtime_settings.environment is not EnvironmentMode.PRODUCTION
     app = FastAPI(
         title="BizPilot API",
         debug=runtime_settings.debug,
         lifespan=lifespan,
+        docs_url="/docs" if expose_docs else None,
+        redoc_url="/redoc" if expose_docs else None,
+        openapi_url="/openapi.json" if expose_docs else None,
     )
     app.state.settings = runtime_settings
     app.state.started = False
