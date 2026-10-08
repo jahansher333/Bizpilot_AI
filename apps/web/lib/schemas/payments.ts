@@ -1,3 +1,4 @@
+import "./zod-config";
 import { z } from "zod";
 
 /** Must match the backend PaymentChannel enum; anything else is rejected with 422. */
