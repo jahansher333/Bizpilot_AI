@@ -47,7 +47,8 @@ mode, non-TLS database connections, `*`/http CORS origins and non-TLS SMTP.
 | `BIZPILOT_EMAIL__FRONTEND_BASE_URL` | `https://<web-domain>` |
 | `BIZPILOT_AI__ENABLED` / `_API_KEY` / `_MODEL` | keep `false` until the AI provider's data terms are reviewed |
 | `BIZPILOT_LOGGING__JSON_LOGS` | `true` |
-| `FORWARDED_ALLOW_IPS` | image default `*`; safe only while the app is reachable solely through Container Apps ingress |
+| `FORWARDED_ALLOW_IPS` | **Required, no default.** The address range the Container Apps ingress connects from (the environment's infrastructure subnet CIDR), comma-separated if several. The image refuses to start without it or with `*`: trusting every proxy makes uvicorn take the client-written left-most `X-Forwarded-For` entry, which defeats every per-IP rate limit. |
+| `BIZPILOT_AUTH__LOGIN_ACCOUNT_MAX_FAILURES` / `_COOLDOWN_MINUTES` | defaults `10` / `15`: consecutive failed logins per account (any IP) before a temporary cooldown |
 
 ## Probes
 

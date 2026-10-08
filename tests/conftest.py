@@ -63,6 +63,7 @@ def test_settings() -> Settings:
             "signing_secret": "test-only-signing-secret",
             "login_max_failures": 1000,
             "login_ip_max_failures": 10000,
+            "login_account_max_failures": 1000,
             "recovery_max_requests": 1000,
         },
         ai={"enabled": False},

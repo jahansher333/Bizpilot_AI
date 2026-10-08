@@ -49,6 +49,10 @@ class AuthenticationSettings(BaseModel):
     login_max_failures: int = Field(default=5, ge=1, le=1000)
     # Failed logins from one client IP across all emails; generous so shared shop/office IPs still work.
     login_ip_max_failures: int = Field(default=50, ge=1, le=10000)
+    # Consecutive failed logins for one account, from any IP, before a temporary cooldown.
+    # The cooldown always expires on its own: there is no permanent lockout to abuse.
+    login_account_max_failures: int = Field(default=10, ge=1, le=1000)
+    login_account_cooldown_minutes: int = Field(default=15, ge=1, le=1440)
     recovery_max_requests: int = Field(default=5, ge=1, le=1000)
 
     @model_validator(mode="after")
@@ -166,6 +170,8 @@ class Settings(BaseSettings):
                 "bizpilot_auth__rate_limit_window_minutes",
                 "bizpilot_auth__login_max_failures",
                 "bizpilot_auth__login_ip_max_failures",
+                "bizpilot_auth__login_account_max_failures",
+                "bizpilot_auth__login_account_cooldown_minutes",
                 "bizpilot_auth__recovery_max_requests",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_email__smtp_host", "bizpilot_email__smtp_port",
