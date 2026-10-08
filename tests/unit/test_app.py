@@ -18,7 +18,10 @@ def test_openapi_smoke(client) -> None:
 
 
 def test_router_registry_has_no_business_routes(test_app) -> None:
-    paths = {route.path for route in test_app.routes}
+    # Public API only: newer FastAPI wraps included routers, so app.routes no longer lists their
+    # routes. The OpenAPI schema has every API route; the docs routes stay top-level.
+    paths = {route.path for route in test_app.routes if getattr(route, "path", None)}
+    paths |= set(test_app.openapi()["paths"])
     assert paths == {
         "/openapi.json", "/docs", "/docs/oauth2-redirect", "/redoc",
         "/healthz", "/health", "/readyz", "/ready",
