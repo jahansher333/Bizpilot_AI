@@ -19,6 +19,7 @@ from app.modules.auth.recovery import (
     hash_password_reset_token,
     set_delivery_adapter,
 )
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -73,7 +74,7 @@ async def test_password_recovery_and_reset_end_to_end_lifecycle(
         json={"email": email, "password": old_password},
     )
     assert login_resp.status_code == 200
-    old_refresh_token = login_resp.json()["refresh_token"]
+    old_refresh_token = refresh_cookie(login_resp)
 
     # 2. Forgot Password Request
     forgot_resp = await auth_client.post(
@@ -121,7 +122,7 @@ async def test_password_recovery_and_reset_end_to_end_lifecycle(
     # 6. Prior refresh session must be revoked
     old_refresh_fail = await auth_client.post(
         "/api/auth/refresh",
-        json={"refresh_token": old_refresh_token},
+        headers=refresh_cookie_header(old_refresh_token),
     )
     assert old_refresh_fail.status_code == 401
 
@@ -194,7 +195,7 @@ async def test_unrelated_user_session_unaffected_by_password_reset(
     # Both login
     resp_a = await auth_client.post("/api/auth/login", json={"email": user_a, "password": pw})
     resp_b = await auth_client.post("/api/auth/login", json={"email": user_b, "password": pw})
-    rb = resp_b.json()["refresh_token"]
+    rb = refresh_cookie(resp_b)
 
     # User A resets password
     await auth_client.post("/api/auth/forgot-password", json={"email": user_a})
@@ -202,9 +203,9 @@ async def test_unrelated_user_session_unaffected_by_password_reset(
     await auth_client.post("/api/auth/reset-password", json={"token": token_a, "new_password": "UserANewPassword123!"})
 
     # User B's refresh token must remain completely valid!
-    ref_b = await auth_client.post("/api/auth/refresh", json={"refresh_token": rb})
+    ref_b = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(rb))
     assert ref_b.status_code == 200
-    assert ref_b.json()["refresh_token"]
+    assert refresh_cookie(ref_b)
 
 
 @pytest.mark.asyncio
@@ -297,7 +298,7 @@ async def test_reset_vs_concurrent_refresh_race_live_postgresql(
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         await client.post("/api/auth/register", json={"email": email, "password": password, "display_name": "Race User"})
         login_resp = await client.post("/api/auth/login", json={"email": email, "password": password})
-        r1 = login_resp.json()["refresh_token"]
+        r1 = refresh_cookie(login_resp)
 
         await client.post("/api/auth/forgot-password", json={"email": email})
         reset_token = test_delivery_adapter.dispatches[0]["token"]
@@ -312,7 +313,7 @@ async def test_reset_vs_concurrent_refresh_race_live_postgresql(
 
         async def _call_refresh() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/refresh", json={"refresh_token": r1})
+                res = await c.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         reset_status, ref_status = await asyncio.gather(_call_reset(), _call_refresh())

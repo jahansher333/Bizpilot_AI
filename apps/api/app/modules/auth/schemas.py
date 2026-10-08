@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime
+
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
@@ -68,12 +70,14 @@ class LoginRequest(BaseModel):
 
 
 class LoginResponse(BaseModel):
-    """Response payload returned upon successful authentication."""
+    """Login service result. Internal: the router returns SessionResponse and moves the refresh
+    token into the HttpOnly cookie, so it never reaches page scripts."""
 
     access_token: str
     token_type: str = "bearer"
     expires_in: int
     refresh_token: str
+    refresh_expires_at: datetime | None = None
 
 
 class RefreshRequest(BaseModel):
@@ -93,12 +97,24 @@ class RefreshRequest(BaseModel):
 
 
 class RefreshResponse(BaseModel):
-    """Response payload returned upon successful refresh token rotation."""
+    """Refresh service result. Internal, like LoginResponse."""
 
     access_token: str
     token_type: str = "bearer"
     expires_in: int
     refresh_token: str
+    refresh_expires_at: datetime | None = None
+
+
+class SessionResponse(BaseModel):
+    """Public body of login and refresh: the short-lived access token only.
+
+    The refresh token is delivered as the HttpOnly bizpilot_refresh cookie (SEC-P1 F3).
+    """
+
+    access_token: str
+    token_type: str = "bearer"
+    expires_in: int
 
 
 

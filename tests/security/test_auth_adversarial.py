@@ -44,6 +44,7 @@ from app.modules.auth.recovery import (
     set_delivery_adapter,
 )
 from app.modules.auth.tokens import TokenService
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -298,7 +299,7 @@ async def test_credential_stuffing_simulation_and_no_permanent_lockout(
     succ_resp = await adv_client.post("/api/auth/login", json={"email": email, "password": correct_password})
     assert succ_resp.status_code == 200
     assert "access_token" in succ_resp.json()
-    assert "refresh_token" in succ_resp.json()
+    assert refresh_cookie(succ_resp)
 
 
 # ==============================================================================
@@ -447,30 +448,30 @@ async def test_adversarial_refresh_replay_blast_radius_containment(
     l_b = await adv_client.post("/api/auth/login", json={"email": email, "password": pw})
     l_c = await adv_client.post("/api/auth/login", json={"email": email, "password": pw})
 
-    token_a1 = l_a.json()["refresh_token"]
-    token_b1 = l_b.json()["refresh_token"]
-    token_c1 = l_c.json()["refresh_token"]
+    token_a1 = refresh_cookie(l_a)
+    token_b1 = refresh_cookie(l_b)
+    token_c1 = refresh_cookie(l_c)
 
     # Legitimate rotation on Family A: A1 -> A2
-    r_a1 = await adv_client.post("/api/auth/refresh", json={"refresh_token": token_a1})
+    r_a1 = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(token_a1))
     assert r_a1.status_code == 200
-    token_a2 = r_a1.json()["refresh_token"]
+    token_a2 = refresh_cookie(r_a1)
 
     # REPLAY ATTACK on Family A: re-present rotated A1
-    r_a_replay = await adv_client.post("/api/auth/refresh", json={"refresh_token": token_a1})
+    r_a_replay = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(token_a1))
     assert r_a_replay.status_code == 401
     assert r_a_replay.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
 
     # Family A is now poisoned: A2 is also revoked
-    r_a2 = await adv_client.post("/api/auth/refresh", json={"refresh_token": token_a2})
+    r_a2 = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(token_a2))
     assert r_a2.status_code == 401
 
     # Blast radius containment: Family B and Family C MUST still be valid!
-    r_b = await adv_client.post("/api/auth/refresh", json={"refresh_token": token_b1})
+    r_b = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(token_b1))
     assert r_b.status_code == 200
     assert r_b.json()["access_token"]
 
-    r_c = await adv_client.post("/api/auth/refresh", json={"refresh_token": token_c1})
+    r_c = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(token_c1))
     assert r_c.status_code == 200
     assert r_c.json()["access_token"]
 
@@ -506,7 +507,7 @@ async def test_adversarial_password_reset_and_concurrent_refresh_annihilation(
     async with AsyncClient(transport=transport, base_url="http://testserver") as client:
         await client.post("/api/auth/register", json={"email": email, "password": old_pw, "display_name": "Reset User"})
         l_resp = await client.post("/api/auth/login", json={"email": email, "password": old_pw})
-        pre_reset_refresh_token = l_resp.json()["refresh_token"]
+        pre_reset_refresh_token = refresh_cookie(l_resp)
 
         # Request password recovery
         await client.post("/api/auth/forgot-password", json={"email": email})
@@ -523,7 +524,7 @@ async def test_adversarial_password_reset_and_concurrent_refresh_annihilation(
 
         async def _call_refresh() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/refresh", json={"refresh_token": pre_reset_refresh_token})
+                res = await c.post("/api/auth/refresh", headers=refresh_cookie_header(pre_reset_refresh_token))
                 return res.status_code
 
         reset_status, ref_status = await asyncio.gather(_call_reset(), _call_refresh())
@@ -542,7 +543,7 @@ async def test_adversarial_password_reset_and_concurrent_refresh_annihilation(
         assert len(active_tokens) == 0, f"Expected 0 active refresh tokens after reset, found {len(active_tokens)}"
 
         # Subsequent refresh attempt with prior token must fail with 401
-        followup_refresh = await client.post("/api/auth/refresh", json={"refresh_token": pre_reset_refresh_token})
+        followup_refresh = await client.post("/api/auth/refresh", headers=refresh_cookie_header(pre_reset_refresh_token))
         assert followup_refresh.status_code == 401
 
 
@@ -625,16 +626,16 @@ async def test_adversarial_cross_user_isolation(
     login_b = await adv_client.post("/api/auth/login", json={"email": user_b_email, "password": pw_b})
 
     token_a = login_a.json()["access_token"]
-    refresh_b = login_b.json()["refresh_token"]
+    refresh_b = refresh_cookie(login_b)
 
     # 1. User A calls /logout-all (authenticated as User A)
     logout_a = await adv_client.post("/api/auth/logout-all", headers={"Authorization": f"Bearer {token_a}"})
     assert logout_a.status_code == 200
 
     # User B's refresh token must remain active and unaffected
-    ref_b = await adv_client.post("/api/auth/refresh", json={"refresh_token": refresh_b})
+    ref_b = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(refresh_b))
     assert ref_b.status_code == 200
-    new_refresh_b = ref_b.json()["refresh_token"]
+    new_refresh_b = refresh_cookie(ref_b)
 
     # 2. User A requests and executes password reset
     in_memory_delivery_adapter.clear()
@@ -647,7 +648,7 @@ async def test_adversarial_cross_user_isolation(
     assert reset_a_resp.status_code == 200
 
     # User B's refresh token must STILL remain active and unaffected
-    ref_b2 = await adv_client.post("/api/auth/refresh", json={"refresh_token": new_refresh_b})
+    ref_b2 = await adv_client.post("/api/auth/refresh", headers=refresh_cookie_header(new_refresh_b))
     assert ref_b2.status_code == 200
 
     # User B's password was NOT changed by User A's reset:
@@ -754,7 +755,7 @@ async def test_adversarial_secret_leakage_audit(
         assert resp_login.status_code == 200
         login_data = resp_login.json()
         actual_access_token = login_data["access_token"]
-        actual_raw_refresh_token = login_data["refresh_token"]
+        actual_raw_refresh_token = refresh_cookie(resp_login)
         actual_auth_header = f"Bearer {actual_access_token}"
         actual_refresh_hash = hashlib.sha256(actual_raw_refresh_token.encode("utf-8")).hexdigest()
 
@@ -796,20 +797,20 @@ async def test_adversarial_secret_leakage_audit(
 
         # Refresh rotation with valid token
         resp_refresh_valid = await adv_client.post(
-            "/api/auth/refresh", json={"refresh_token": actual_raw_refresh_token}
+            "/api/auth/refresh", headers=refresh_cookie_header(actual_raw_refresh_token)
         )
         assert resp_refresh_valid.status_code == 200
-        rotated_refresh_token = resp_refresh_valid.json()["refresh_token"]
+        rotated_refresh_token = refresh_cookie(resp_refresh_valid)
 
         # Refresh replay with already-consumed token (fails 401)
         resp_refresh_replay = await adv_client.post(
-            "/api/auth/refresh", json={"refresh_token": actual_raw_refresh_token}
+            "/api/auth/refresh", headers=refresh_cookie_header(actual_raw_refresh_token)
         )
         assert resp_refresh_replay.status_code == 401
 
         # Malformed / invalid refresh request
         resp_refresh_malformed = await adv_client.post(
-            "/api/auth/refresh", json={"refresh_token": "y" * 32}
+            "/api/auth/refresh", headers=refresh_cookie_header("y" * 32)
         )
         assert resp_refresh_malformed.status_code == 401
 
@@ -836,7 +837,7 @@ async def test_adversarial_secret_leakage_audit(
 
         # Logout with rotated refresh token
         resp_logout = await adv_client.post(
-            "/api/auth/logout", json={"refresh_token": rotated_refresh_token}
+            "/api/auth/logout", headers=refresh_cookie_header(rotated_refresh_token)
         )
         assert resp_logout.status_code == 200
 
@@ -894,15 +895,26 @@ async def test_adversarial_secret_leakage_audit(
     token_issuance_responses = {resp_login, resp_refresh_valid}
     non_issuance_responses = [r for r in all_responses if r not in token_issuance_responses]
 
+    for r in all_responses:
+        # The raw refresh token never appears in ANY body, not even at issuance: it travels only in
+        # the HttpOnly cookie (SEC-P1 F3).
+        assert actual_raw_refresh_token not in r.text, f"Raw refresh token leaked in body of {r.url}"
     for r in non_issuance_responses:
-        # Outside of token issuance endpoints, raw refresh tokens must NEVER appear
-        assert actual_raw_refresh_token not in r.text, f"Raw refresh token leaked in {r.url}"
         # Outside of token issuance endpoints, access tokens must NEVER appear
         assert actual_access_token not in r.text, f"Access token leaked in {r.url}"
 
     # Verification 3: Headers across ALL responses must NEVER contain sensitive material
     for r in all_responses:
-        headers_str = str(r.headers)
+        # Issuance responses legitimately carry the refresh token in their Set-Cookie header only.
+        if r in token_issuance_responses:
+            headers_str = str([(k, v) for k, v in r.headers.multi_items() if k.lower() != "set-cookie"])
+            assert all(
+                "httponly" in v.lower() and "secure" in v.lower()
+                for k, v in r.headers.multi_items()
+                if k.lower() == "set-cookie" and actual_raw_refresh_token in v
+            )
+        else:
+            headers_str = str(r.headers)
         assert secret_pw not in headers_str, f"Plaintext password in headers of {r.url}"
         assert actual_argon2_hash not in headers_str, f"Argon2id hash in headers of {r.url}"
         assert actual_raw_refresh_token not in headers_str, f"Raw refresh token in headers of {r.url}"

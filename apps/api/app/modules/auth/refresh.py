@@ -113,4 +113,5 @@ class RefreshService:
             token_type="bearer",
             expires_in=access_token_result.expires_in,
             refresh_token=new_raw_token,
+            refresh_expires_at=token.expires_at,
         )

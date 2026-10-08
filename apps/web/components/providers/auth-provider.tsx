@@ -23,11 +23,10 @@ import {
   SESSION_TOKENS_EVENT,
   SessionTokensDetail,
   clearStoredSession,
-  getStoredAccessToken,
-  getStoredRefreshToken,
-  isAccessTokenFresh,
+  hasSessionHint,
+  purgeLegacyTokenStorage,
   refreshSession,
-  storeSessionTokens,
+  storeSession,
 } from "@/lib/api/http";
 import {
   createOrganization,
@@ -56,7 +55,6 @@ export const AuthContext = createContext<AuthContextType | undefined>(undefined)
 export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<UserMe | null>(null);
   const [token, setToken] = useState<string | null>(null);
-  const [refreshToken, setRefreshToken] = useState<string | null>(null);
   const [organizations, setOrganizations] = useState<Organization[]>([]);
   const [activeOrgId, setActiveOrgId] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
@@ -68,39 +66,32 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     function resetSessionState() {
       setUser(null);
       setToken(null);
-      setRefreshToken(null);
       setOrganizations([]);
       setActiveOrgId(null);
     }
 
     async function initSession() {
       try {
-        if (!getStoredRefreshToken()) return;
+        purgeLegacyTokenStorage();
+        // Signed-out browsers skip the refresh call; the flag holds no secret.
+        if (!hasSessionHint()) return;
 
-        // Reuse a still-valid access token instead of rotating the refresh token on every page
-        // load: a rotation whose response is lost (page reloaded or left mid-request) leaves the
-        // browser holding a spent refresh token, and presenting it again makes the API revoke
-        // every session in the family. A 401 later still refreshes through the shared client.
-        let accessToken = getStoredAccessToken();
-        if (!isAccessTokenFresh(accessToken)) {
-          // Shared single-flight refresh: requests that hit a 401 while the page loads join this
-          // same call instead of sending the same refresh token a second time.
-          const outcome = await refreshSession();
-          if (!isMounted) return;
-          if (outcome.status !== "ok") {
-            // "rejected": the API refused the refresh token and the stored session is already cleared.
-            // "failed" (offline, aborted by navigation, server error): keep the stored session so the
-            // next page load can restore it; only this page renders signed out.
-            resetSessionState();
-            return;
-          }
-          accessToken = outcome.accessToken;
+        // The access token lives only in memory, so every page load exchanges the HttpOnly refresh
+        // cookie for a new one. Shared single-flight refresh: requests that hit a 401 while the
+        // page loads join this same call instead of presenting the cookie a second time.
+        const outcome = await refreshSession();
+        if (!isMounted) return;
+        if (outcome.status !== "ok") {
+          // "rejected": the API refused the refresh cookie and the session is already cleared.
+          // "failed" (offline, aborted by navigation, server error): keep the hint so the next
+          // page load can restore the session; only this page renders signed out.
+          resetSessionState();
+          return;
         }
-
+        const accessToken = outcome.accessToken;
         setToken(accessToken);
-        setRefreshToken(getStoredRefreshToken());
 
-        const [me, orgs] = await Promise.all([getCurrentUser(accessToken!), listOrganizations(accessToken!)]);
+        const [me, orgs] = await Promise.all([getCurrentUser(accessToken), listOrganizations(accessToken)]);
         if (!isMounted) return;
         setUser(me);
         setOrganizations(orgs);
@@ -117,8 +108,8 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         }
       } catch {
         // Loading the profile failed (e.g. the request was aborted by navigating away, or the
-        // network dropped). Never wipe the stored session for that: a rejected refresh token is
-        // handled by the shared client, which clears it and signs the user out.
+        // network dropped). Never end the session for that: a rejected refresh cookie is handled
+        // by the shared client, which clears it and signs the user out.
         if (isMounted) resetSessionState();
       } finally {
         if (isMounted) setIsLoading(false);
@@ -136,17 +127,12 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   // and sign out when the refresh token is rejected.
   useEffect(() => {
     function handleTokens(event: Event) {
-      const { accessToken, refreshToken: nextRefreshToken } = (
-        event as CustomEvent<SessionTokensDetail>
-      ).detail;
-      setToken(accessToken);
-      setRefreshToken(nextRefreshToken);
+      setToken((event as CustomEvent<SessionTokensDetail>).detail.accessToken);
     }
 
     function handleExpired() {
       setUser(null);
       setToken(null);
-      setRefreshToken(null);
       setOrganizations([]);
       setActiveOrgId(null);
       if (!window.location.pathname.startsWith("/login")) {
@@ -167,8 +153,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const tokens = await loginUser(credentials);
       setToken(tokens.access_token);
-      setRefreshToken(tokens.refresh_token);
-      storeSessionTokens(tokens.access_token, tokens.refresh_token);
+      storeSession(tokens.access_token);
 
       const [me, orgs] = await Promise.all([
         getCurrentUser(tokens.access_token),
@@ -200,22 +185,19 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
-    if (refreshToken) {
-      try {
-        await logoutUser(refreshToken, token || undefined);
-      } catch {
-        // Safe error suppression during teardown
-      }
+    try {
+      await logoutUser();
+    } catch {
+      // Safe error suppression during teardown
     }
 
     clearStoredSession();
 
     setUser(null);
     setToken(null);
-    setRefreshToken(null);
     setOrganizations([]);
     setActiveOrgId(null);
-  }, [refreshToken, token]);
+  }, []);
 
   const selectOrg = useCallback((orgId: string) => {
     setActiveOrgId(orgId);

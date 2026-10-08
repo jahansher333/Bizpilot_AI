@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.session import get_session
 from app.modules.auth.models import RefreshToken
 from app.modules.auth.refresh import hash_refresh_token
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -52,15 +53,15 @@ async def test_current_session_logout_revokes_family_and_blocks_refresh(
         json={"email": email, "password": password},
     )
     assert login_resp.status_code == 200
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # Rotate once: R1 -> R2
-    rot_resp = await auth_client.post("/api/auth/refresh", json={"refresh_token": r1})
+    rot_resp = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
     assert rot_resp.status_code == 200
-    r2 = rot_resp.json()["refresh_token"]
+    r2 = refresh_cookie(rot_resp)
 
     # 2. Logout current session using R2
-    logout_resp = await auth_client.post("/api/auth/logout", json={"refresh_token": r2})
+    logout_resp = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(r2))
     assert logout_resp.status_code == 200
     assert logout_resp.json() == {
         "status": "success",
@@ -76,7 +77,7 @@ async def test_current_session_logout_revokes_family_and_blocks_refresh(
     assert all(t.revoked_at is not None for t in tokens)
 
     # 4. Subsequent refresh with R2 must fail
-    refresh_fail = await auth_client.post("/api/auth/refresh", json={"refresh_token": r2})
+    refresh_fail = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r2))
     assert refresh_fail.status_code == 401
     assert refresh_fail.json()["error"]["message"] == "Invalid or expired refresh token"
 
@@ -96,24 +97,24 @@ async def test_multi_device_isolation_logout_family_a_preserves_family_b(
 
     # Device A Login
     resp_a = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r_a = resp_a.json()["refresh_token"]
+    r_a = refresh_cookie(resp_a)
 
     # Device B Login
     resp_b = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r_b = resp_b.json()["refresh_token"]
+    r_b = refresh_cookie(resp_b)
 
     # Logout Device A
-    logout_a = await auth_client.post("/api/auth/logout", json={"refresh_token": r_a})
+    logout_a = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(r_a))
     assert logout_a.status_code == 200
 
     # Device A refresh is denied
-    ref_a = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_a})
+    ref_a = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_a))
     assert ref_a.status_code == 401
 
     # Device B remains active and can rotate successfully
-    ref_b = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_b})
+    ref_b = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_b))
     assert ref_b.status_code == 200
-    assert ref_b.json()["refresh_token"]
+    assert refresh_cookie(ref_b)
 
 
 @pytest.mark.asyncio
@@ -130,14 +131,14 @@ async def test_logout_current_session_idempotent(auth_client: AsyncClient) -> No
         "/api/auth/login",
         json={"email": email, "password": password},
     )
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # First logout
-    res1 = await auth_client.post("/api/auth/logout", json={"refresh_token": r1})
+    res1 = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(r1))
     assert res1.status_code == 200
 
     # Second logout with same token
-    res2 = await auth_client.post("/api/auth/logout", json={"refresh_token": r1})
+    res2 = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(r1))
     assert res2.status_code == 200
     assert res2.json() == {
         "status": "success",
@@ -162,13 +163,13 @@ async def test_logout_all_devices_revokes_all_user_families(
     # 3 distinct logins representing 3 devices
     resp1 = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
     jwt1 = resp1.json()["access_token"]
-    r1 = resp1.json()["refresh_token"]
+    r1 = refresh_cookie(resp1)
 
     resp2 = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r2 = resp2.json()["refresh_token"]
+    r2 = refresh_cookie(resp2)
 
     resp3 = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r3 = resp3.json()["refresh_token"]
+    r3 = refresh_cookie(resp3)
 
     # Call /logout-all using jwt1
     logout_all_resp = await auth_client.post(
@@ -194,9 +195,9 @@ async def test_logout_all_devices_revokes_all_user_families(
     assert all(t.revoked_at is not None for t in tokens)
 
     # All 3 devices are denied refresh
-    assert (await auth_client.post("/api/auth/refresh", json={"refresh_token": r1})).status_code == 401
-    assert (await auth_client.post("/api/auth/refresh", json={"refresh_token": r2})).status_code == 401
-    assert (await auth_client.post("/api/auth/refresh", json={"refresh_token": r3})).status_code == 401
+    assert (await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r1))).status_code == 401
+    assert (await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r2))).status_code == 401
+    assert (await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r3))).status_code == 401
 
     # Repeated logout-all succeeds idempotently
     repeat = await auth_client.post(
@@ -221,10 +222,10 @@ async def test_access_jwt_lifecycle_after_logout(auth_client: AsyncClient) -> No
         json={"email": email, "password": password},
     )
     access_token = login_resp.json()["access_token"]
-    refresh_token = login_resp.json()["refresh_token"]
+    refresh_token = refresh_cookie(login_resp)
 
     # Logout
-    logout_resp = await auth_client.post("/api/auth/logout", json={"refresh_token": refresh_token})
+    logout_resp = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(refresh_token))
     assert logout_resp.status_code == 200
 
     # Access JWT can still access /me within its 15-minute window
@@ -236,7 +237,7 @@ async def test_access_jwt_lifecycle_after_logout(auth_client: AsyncClient) -> No
     assert me_resp.json()["email"] == email
 
     # But refresh is irrevocably blocked
-    ref_resp = await auth_client.post("/api/auth/refresh", json={"refresh_token": refresh_token})
+    ref_resp = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(refresh_token))
     assert ref_resp.status_code == 401
 
 
@@ -265,17 +266,17 @@ async def test_concurrent_logout_vs_refresh_on_same_token(
             json={"email": email, "password": password, "display_name": "Race User"},
         )
         login_resp = await client.post("/api/auth/login", json={"email": email, "password": password})
-        r1 = login_resp.json()["refresh_token"]
+        r1 = refresh_cookie(login_resp)
 
         # Concurrently call logout and refresh presenting identical R1
         async def _call_logout() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/logout", json={"refresh_token": r1})
+                res = await c.post("/api/auth/logout", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         async def _call_refresh() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/refresh", json={"refresh_token": r1})
+                res = await c.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         logout_status, refresh_status = await asyncio.gather(_call_logout(), _call_refresh())
@@ -311,11 +312,11 @@ async def test_concurrent_simultaneous_logouts_on_same_token(test_app: FastAPI, 
             json={"email": email, "password": password, "display_name": "DualLogout"},
         )
         login_resp = await client.post("/api/auth/login", json={"email": email, "password": password})
-        r1 = login_resp.json()["refresh_token"]
+        r1 = refresh_cookie(login_resp)
 
         async def _call_logout() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/logout", json={"refresh_token": r1})
+                res = await c.post("/api/auth/logout", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         res1, res2 = await asyncio.gather(_call_logout(), _call_logout())
@@ -344,7 +345,7 @@ async def test_concurrent_logout_all_vs_refresh(
         )
         login_resp = await client.post("/api/auth/login", json={"email": email, "password": password})
         jwt_token = login_resp.json()["access_token"]
-        r1 = login_resp.json()["refresh_token"]
+        r1 = refresh_cookie(login_resp)
 
         async def _call_logout_all() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
@@ -356,7 +357,7 @@ async def test_concurrent_logout_all_vs_refresh(
 
         async def _call_refresh() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/refresh", json={"refresh_token": r1})
+                res = await c.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         lo_status, ref_status = await asyncio.gather(_call_logout_all(), _call_refresh())

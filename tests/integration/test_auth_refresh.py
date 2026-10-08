@@ -18,6 +18,7 @@ from app.db.session import get_session
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.refresh import hash_refresh_token
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -58,7 +59,7 @@ async def test_refresh_successful_rotation_end_to_end(
     )
     assert login_resp.status_code == 200
     login_data = login_resp.json()
-    r1 = login_data["refresh_token"]
+    r1 = refresh_cookie(login_resp)
     assert r1
 
     # Inspect R1 in database
@@ -72,11 +73,12 @@ async def test_refresh_successful_rotation_end_to_end(
     # 2. Rotate R1 -> R2
     refresh_resp = await auth_client.post(
         "/api/auth/refresh",
-        json={"refresh_token": r1},
+        headers=refresh_cookie_header(r1),
     )
     assert refresh_resp.status_code == 200
     refresh_data = refresh_resp.json()
-    r2 = refresh_data["refresh_token"]
+    r2 = refresh_cookie(refresh_resp)
+    assert "refresh_token" not in refresh_data
     a2 = refresh_data["access_token"]
     assert r2 != r1
     assert refresh_data["token_type"] == "bearer"
@@ -119,16 +121,16 @@ async def test_refresh_multiple_sequential_rotations_preserve_ceiling(
         "/api/auth/login",
         json={"email": email, "password": password},
     )
-    current_refresh = login_resp.json()["refresh_token"]
+    current_refresh = refresh_cookie(login_resp)
 
     tokens = [current_refresh]
     for _ in range(3):
         resp = await auth_client.post(
             "/api/auth/refresh",
-            json={"refresh_token": current_refresh},
+            headers=refresh_cookie_header(current_refresh),
         )
         assert resp.status_code == 200
-        current_refresh = resp.json()["refresh_token"]
+        current_refresh = refresh_cookie(resp)
         tokens.append(current_refresh)
 
     # Check all 4 tokens in DB
@@ -168,20 +170,20 @@ async def test_refresh_replay_detection_revokes_entire_family(
         "/api/auth/login",
         json={"email": email, "password": password},
     )
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # Legitimate rotation R1 -> R2
     rot_resp = await auth_client.post(
         "/api/auth/refresh",
-        json={"refresh_token": r1},
+        headers=refresh_cookie_header(r1),
     )
     assert rot_resp.status_code == 200
-    r2 = rot_resp.json()["refresh_token"]
+    r2 = refresh_cookie(rot_resp)
 
     # Malicious replay: presenting consumed R1 again
     replay_resp = await auth_client.post(
         "/api/auth/refresh",
-        json={"refresh_token": r1},
+        headers=refresh_cookie_header(r1),
     )
     assert replay_resp.status_code == 401
     body = replay_resp.json()
@@ -197,7 +199,7 @@ async def test_refresh_replay_detection_revokes_entire_family(
     # Now presenting R2 also fails
     r2_resp = await auth_client.post(
         "/api/auth/refresh",
-        json={"refresh_token": r2},
+        headers=refresh_cookie_header(r2),
     )
     assert r2_resp.status_code == 401
     assert r2_resp.json()["error"]["message"] == "Invalid or expired refresh token"
@@ -219,25 +221,25 @@ async def test_refresh_multiple_devices_independent_families(
 
     # Login 1 (Device A)
     resp_a = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r_a1 = resp_a.json()["refresh_token"]
+    r_a1 = refresh_cookie(resp_a)
 
     # Login 2 (Device B)
     resp_b = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r_b1 = resp_b.json()["refresh_token"]
+    r_b1 = refresh_cookie(resp_b)
 
     # Rotate Device A: r_a1 -> r_a2
-    rot_a = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_a1})
+    rot_a = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_a1))
     assert rot_a.status_code == 200
-    r_a2 = rot_a.json()["refresh_token"]
+    r_a2 = refresh_cookie(rot_a)
 
     # Replay r_a1 on Device A -> invalidates Family A
-    replay_a = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_a1})
+    replay_a = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_a1))
     assert replay_a.status_code == 401
 
     # Device B (Family B) remains unharmed and can rotate successfully
-    rot_b = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_b1})
+    rot_b = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_b1))
     assert rot_b.status_code == 200
-    assert rot_b.json()["refresh_token"]
+    assert refresh_cookie(rot_b)
 
 
 @pytest.mark.asyncio
@@ -254,7 +256,7 @@ async def test_refresh_expired_token_rejected(
         json={"email": email, "password": password, "display_name": "Expired Tester"},
     )
     login_resp = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # Expire token in database
     r1_hash = hash_refresh_token(r1)
@@ -263,7 +265,7 @@ async def test_refresh_expired_token_rejected(
     db_r1.expires_at = datetime.now(timezone.utc) - timedelta(hours=1)
     await db_session.commit()
 
-    resp = await auth_client.post("/api/auth/refresh", json={"refresh_token": r1})
+    resp = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
     assert resp.status_code == 401
     assert resp.json()["error"]["message"] == "Invalid or expired refresh token"
 
@@ -282,7 +284,7 @@ async def test_refresh_disabled_user_rejected_non_enumerating(
         json={"email": email, "password": password, "display_name": "Disabled Refresh"},
     )
     login_resp = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # Disable user
     stmt = select(User).where(User.email_normalized == email)
@@ -290,7 +292,7 @@ async def test_refresh_disabled_user_rejected_non_enumerating(
     user.status = UserStatus.DISABLED.value
     await db_session.commit()
 
-    resp = await auth_client.post("/api/auth/refresh", json={"refresh_token": r1})
+    resp = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
     assert resp.status_code == 401
     assert resp.json()["error"]["code"] == "AUTHENTICATION_REQUIRED"
     assert resp.json()["error"]["message"] == "Invalid or expired refresh token"
@@ -325,12 +327,12 @@ async def test_refresh_concurrent_race_condition(
             json={"email": email, "password": password},
         )
         assert login_resp.status_code == 200
-        r1 = login_resp.json()["refresh_token"]
+        r1 = refresh_cookie(login_resp)
 
         # Run two concurrent refresh requests presenting identical R1
         async def _call_refresh() -> int:
             async with AsyncClient(transport=transport, base_url="http://testserver") as c:
-                res = await c.post("/api/auth/refresh", json={"refresh_token": r1})
+                res = await c.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
                 return res.status_code
 
         results = await asyncio.gather(_call_refresh(), _call_refresh())

@@ -31,7 +31,7 @@ The original HARD-007 review (2026-09-27) marked every item "Verified" and repor
 | **AI Credentials** | Independent provider credentials | Separate `BIZPILOT_AI__API_KEY` (never browser-exposed) | Verified |
 | **Observability & Redaction** | Structured logging without secrets | Raw prompts/completions not stored; passwords/tokens scrubbed | Verified |
 | **CORS Policy** | Allowlisted production origins | `BIZPILOT_CORS_ORIGINS`; production rejects `*`, non-https and loopback origins (FIX-002) | Verified (FIX-002) |
-| **Browser Token Storage** | Minimize XSS impact | Tokens in `localStorage` (founder decision 2026-10-03) | Accepted risk |
+| **Browser Token Storage** | Minimize XSS impact | Refresh token in an `HttpOnly; Secure; SameSite=Strict` cookie scoped to `/api/auth`; access token in memory only; Origin allow-list on cookie endpoints; CSP (founder decision 2026-10-08, SEC-P1 F3, replacing the 2026-10-03 `localStorage` decision) | Verified (SEC-P1 F3) |
 | **Containerization** | Production images | `apps/api/Dockerfile` and `apps/web/Dockerfile` (non-root, standalone Next.js); Azure plan in `AZURE-DEPLOYMENT.md` (HARD-008) | Verified locally 2026-10-08: both images build; migration job, `/healthz`, `/readyz`, register/login, CORS, X-Forwarded-For rate limiting and a browser login through both containers; production mode refuses unsafe config |
 | **Customer-facing UI copy** | No claims beyond P0 scope | Unverified compliance and automation claims removed (FIX-007) | Verified (FIX-007) |
 | **Continuous integration** | Tests on every change | `.github/workflows/ci.yml`: backend with PostgreSQL, web typecheck/unit/build/E2E, both images (HARD-008) | Written; repository has no remote yet |

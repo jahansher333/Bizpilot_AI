@@ -19,6 +19,19 @@ The browser calls the API directly at its own https origin (`NEXT_PUBLIC_API_URL
 Next.js `/api` proxy. Going through the proxy would make every request reach the API from the web
 container's address, and the per-IP rate limits would then count all users as one client.
 
+### Session cookie: web and API must be on the same site
+
+Since SEC-P1 F3 the refresh token is an `HttpOnly; Secure; SameSite=Strict` cookie set by the API
+(`bizpilot_refresh`, `Path=/api/auth`); the access token stays in the page's memory. Browsers only
+send a `SameSite=Strict` cookie on requests between the **same site** (same registrable domain), so:
+
+- Serve both apps from subdomains of one domain over https, e.g. `app.<domain>` and `api.<domain>`.
+- Do not rely on the default `*.azurecontainerapps.io` hostnames for the two apps: they are not
+  guaranteed to count as the same site, and if they do not, sign-in works but every page load signs
+  the user out (the browser never sends the cookie to `/api/auth/refresh`).
+- `BIZPILOT_CORS_ORIGINS` must list the web origin exactly: CORS now allows credentials for it, and
+  `/api/auth/refresh` and `/api/auth/logout` reject browser requests from any other `Origin`.
+
 ## Build
 
 ```bash

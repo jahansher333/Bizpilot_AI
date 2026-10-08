@@ -43,7 +43,7 @@ const ORG = {
 };
 
 function mockSignedInSession(orgs: (typeof ORG)[]) {
-  localStorage.setItem("bizpilot_refresh_token", "mock-token");
+  localStorage.setItem("bizpilot_session", "1");
   vi.spyOn(httpApi, "refreshSession").mockResolvedValueOnce({ status: "ok", accessToken: "mock-access-token" });
   vi.spyOn(authApi, "getCurrentUser").mockResolvedValueOnce({
     id: "user-1",
@@ -106,7 +106,6 @@ describe("Authentication & Organization UI (R2 design)", () => {
     it("goes straight to the only workspace after sign-in", async () => {
       vi.spyOn(authApi, "loginUser").mockResolvedValueOnce({
         access_token: "mock-jwt-access-token",
-        refresh_token: "mock-refresh-token-32-chars-long",
         token_type: "bearer",
         expires_in: 900,
       });
@@ -119,11 +118,13 @@ describe("Authentication & Organization UI (R2 design)", () => {
       fireEvent.click(screen.getByRole("button", { name: /^sign in$/i }));
 
       await waitFor(() => expect(mockPush).toHaveBeenCalledWith("/workspace/org-456"));
-      expect(localStorage.getItem("bizpilot_refresh_token")).toBe("mock-refresh-token-32-chars-long");
+      // The refresh token is an HttpOnly cookie; only the non-secret session hint is stored.
+      expect(localStorage.getItem("bizpilot_session")).toBe("1");
+      expect(JSON.stringify({ ...localStorage })).not.toContain("mock-jwt-access-token");
     });
 
     it("opens the workspace chooser when the user has several workspaces", async () => {
-      vi.spyOn(authApi, "loginUser").mockResolvedValueOnce({ access_token: "a", refresh_token: "r", token_type: "bearer", expires_in: 900 });
+      vi.spyOn(authApi, "loginUser").mockResolvedValueOnce({ access_token: "a", token_type: "bearer", expires_in: 900 });
       vi.spyOn(authApi, "getCurrentUser").mockResolvedValueOnce({ id: "u", email: "a@b.pk", display_name: "A", status: "active" });
       vi.spyOn(orgApi, "listOrganizations").mockResolvedValueOnce([ORG, { ...ORG, id: "org-2", display_name: "Second" }]);
 
@@ -161,7 +162,7 @@ describe("Authentication & Organization UI (R2 design)", () => {
 
     it("registers, signs in and opens onboarding for a new account", async () => {
       vi.spyOn(authApi, "registerUser").mockResolvedValueOnce({ message: "Registration request accepted. Please proceed to login." });
-      vi.spyOn(authApi, "loginUser").mockResolvedValueOnce({ access_token: "a", refresh_token: "r", token_type: "bearer", expires_in: 900 });
+      vi.spyOn(authApi, "loginUser").mockResolvedValueOnce({ access_token: "a", token_type: "bearer", expires_in: 900 });
       vi.spyOn(authApi, "getCurrentUser").mockResolvedValueOnce({ id: "u", email: "bilal@example.com", display_name: "Bilal Khan", status: "active" });
       vi.spyOn(orgApi, "listOrganizations").mockResolvedValueOnce([]);
 

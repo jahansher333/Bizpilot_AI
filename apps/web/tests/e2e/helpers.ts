@@ -5,10 +5,11 @@ export const TEST_ORG_B_ID = '01a0e000-0000-7000-8000-000000000002';
 export const TEST_USER_ID = '01a0e000-0000-7000-8000-000000000010';
 
 export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staff' = 'owner') {
-  // Signed-in session: the app restores it on load by exchanging the stored refresh token
-  // (FIX-008 workspace route guard sends signed-out visitors to /login).
+  // Signed-in session: the app restores it on load by exchanging the HttpOnly refresh cookie
+  // (mocked below) for an access token; the session hint tells it a cookie exists (SEC-P1 F3).
+  // FIX-008 workspace route guard sends signed-out visitors to /login.
   await page.addInitScript(() => {
-    window.localStorage.setItem('bizpilot_refresh_token', 'e2e-refresh-token');
+    window.localStorage.setItem('bizpilot_session', '1');
   });
   await page.route('**/api/auth/refresh', async (route) => {
     await route.fulfill({
@@ -16,7 +17,6 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
       contentType: 'application/json',
       body: JSON.stringify({
         access_token: 'e2e-access-token',
-        refresh_token: 'e2e-refresh-token',
         token_type: 'bearer',
         expires_in: 900,
       }),

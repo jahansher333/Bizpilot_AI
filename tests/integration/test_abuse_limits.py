@@ -17,6 +17,7 @@ from app.db.session import get_session
 from app.main import create_app
 from app.modules.ai.models import AIDailyUsage
 from app.modules.ai.quota import AI_DAILY_LIMIT_MESSAGE, AIDailyQuota
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 PASSWORD = "ValidSecretPassword123!"
 
@@ -80,13 +81,13 @@ async def test_registration_limit_counts_duplicate_and_invalid_attempts(abuse_ap
 async def test_refresh_is_limited_per_ip(abuse_app: FastAPI) -> None:
     async with _client(abuse_app, "203.0.113.152") as client:
         for _ in range(2):
-            resp = await client.post("/api/auth/refresh", json={"refresh_token": "x" * 43})
+            resp = await client.post("/api/auth/refresh", headers=refresh_cookie_header("x" * 43))
             assert resp.status_code == 401
-        blocked = await client.post("/api/auth/refresh", json={"refresh_token": "x" * 43})
+        blocked = await client.post("/api/auth/refresh", headers=refresh_cookie_header("x" * 43))
         assert blocked.status_code == 429
 
     async with _client(abuse_app, "198.51.100.152") as other:
-        assert (await other.post("/api/auth/refresh", json={"refresh_token": "x" * 43})).status_code == 401
+        assert (await other.post("/api/auth/refresh", headers=refresh_cookie_header("x" * 43))).status_code == 401
 
 
 async def _owner_with_org(client: AsyncClient, timezone_name: str = "Asia/Karachi") -> tuple[str, str]:

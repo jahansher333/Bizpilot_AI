@@ -177,4 +177,5 @@ class LoginService:
             token_type="bearer",
             expires_in=token_result.expires_in,
             refresh_token=raw_refresh_token,
+            refresh_expires_at=family_expires_at,
         )

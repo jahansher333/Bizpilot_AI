@@ -1,23 +1,28 @@
 /**
- * Shared authenticated HTTP client (FIX-005).
+ * Shared authenticated HTTP client (FIX-005, SEC-P1 F3).
  *
- * Attaches the access token, and on a 401 refreshes the session once (single-flight,
- * shared by concurrent requests) and retries the request with the new token.
- * When the refresh token itself is rejected, the stored session is cleared and
- * SESSION_EXPIRED_EVENT is dispatched so the AuthProvider can sign the user out.
+ * The access token lives only in memory (this module). The refresh token is an HttpOnly cookie
+ * that page scripts cannot read; the browser sends it to /api/auth/refresh and /api/auth/logout.
+ * On a 401 the client refreshes once (single-flight within the tab, serialized across tabs) and
+ * retries the request with the new token. When the refresh cookie is rejected, the session is
+ * cleared and SESSION_EXPIRED_EVENT is dispatched so the AuthProvider can sign the user out.
  */
 
-export const ACCESS_TOKEN_KEY = "bizpilot_access_token";
-export const REFRESH_TOKEN_KEY = "bizpilot_refresh_token";
+/** Non-secret flag: this browser probably holds a refresh cookie, so a page load should refresh. */
+export const SESSION_HINT_KEY = "bizpilot_session";
 export const ACTIVE_ORG_KEY = "bizpilot_active_org_id";
+/** Where tokens lived before SEC-P1 F3; removed on sight so no token stays readable by scripts. */
+const LEGACY_TOKEN_KEYS = ["bizpilot_access_token", "bizpilot_refresh_token"] as const;
+const REFRESH_LOCK = "bizpilot-session-refresh";
 
 export const SESSION_TOKENS_EVENT = "bizpilot:session-tokens";
 export const SESSION_EXPIRED_EVENT = "bizpilot:session-expired";
 
 export interface SessionTokensDetail {
   accessToken: string;
-  refreshToken: string;
 }
+
+let accessToken: string | null = null;
 
 export function getApiBaseUrl(): string {
   return process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
@@ -31,91 +36,83 @@ function storage(): Storage | null {
   }
 }
 
-export function getStoredAccessToken(): string | null {
-  return storage()?.getItem(ACCESS_TOKEN_KEY) ?? null;
+export function getAccessToken(): string | null {
+  return accessToken;
 }
 
-export function getStoredRefreshToken(): string | null {
-  return storage()?.getItem(REFRESH_TOKEN_KEY) ?? null;
+export function hasSessionHint(): boolean {
+  return storage()?.getItem(SESSION_HINT_KEY) === "1";
 }
 
-/**
- * True when a JWT access token is still usable for at least `marginSeconds`. Only the `exp`
- * claim is read (no verification — the API verifies every request); anything unreadable counts
- * as expired, so the caller falls back to a refresh.
- */
-export function isAccessTokenFresh(token: string | null, marginSeconds = 30, nowMs: number = Date.now()): boolean {
-  if (!token) return false;
-  try {
-    const payload = token.split(".")[1];
-    if (!payload) return false;
-    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(payload.length / 4) * 4, "=");
-    const exp = Number(JSON.parse(atob(base64)).exp);
-    return Number.isFinite(exp) && exp * 1000 > nowMs + marginSeconds * 1000;
-  } catch {
-    return false;
-  }
-}
-
-export function storeSessionTokens(accessToken: string, refreshToken: string): void {
+/** Drop tokens an older version of the app kept in localStorage. */
+export function purgeLegacyTokenStorage(): void {
   const store = storage();
-  store?.setItem(ACCESS_TOKEN_KEY, accessToken);
-  store?.setItem(REFRESH_TOKEN_KEY, refreshToken);
+  for (const key of LEGACY_TOKEN_KEYS) store?.removeItem(key);
+}
+
+export function storeSession(nextAccessToken: string): void {
+  accessToken = nextAccessToken;
+  storage()?.setItem(SESSION_HINT_KEY, "1");
   if (typeof window !== "undefined") {
     window.dispatchEvent(
-      new CustomEvent<SessionTokensDetail>(SESSION_TOKENS_EVENT, {
-        detail: { accessToken, refreshToken },
-      })
+      new CustomEvent<SessionTokensDetail>(SESSION_TOKENS_EVENT, { detail: { accessToken: nextAccessToken } })
     );
   }
 }
 
 export function clearStoredSession(): void {
+  accessToken = null;
   const store = storage();
-  store?.removeItem(ACCESS_TOKEN_KEY);
-  store?.removeItem(REFRESH_TOKEN_KEY);
+  store?.removeItem(SESSION_HINT_KEY);
   store?.removeItem(ACTIVE_ORG_KEY);
+  purgeLegacyTokenStorage();
 }
 
 export type RefreshOutcome =
   | { status: "ok"; accessToken: string }
-  /** The API rejected the refresh token (401): the stored session has been cleared. */
+  /** The API rejected the refresh cookie (401): the session has been cleared. */
   | { status: "rejected" }
-  /** No stored refresh token, a network error, an aborted request or a server error: the session is kept. */
+  /** A network error, an aborted request, a rate limit or a server error: the session is kept. */
   | { status: "failed" };
 
 let refreshInFlight: Promise<RefreshOutcome> | null = null;
 const announcedRejections = new WeakSet<RefreshOutcome>();
 
 /**
- * The one place the app rotates its refresh token. Single-flight: concurrent callers (page-load
- * session restore and any request that got a 401) share one /auth/refresh call, so the same
- * refresh token is never sent twice — the backend treats a reused token as theft and revokes
- * every session in its family. Only an explicit 401 ends the stored session.
+ * Run `fn` while holding a lock shared by every tab of this origin. The refresh cookie is shared
+ * by all tabs and rotates on every use; two tabs refreshing at once would present the same
+ * cookie twice, which the API treats as theft and answers by revoking the whole session.
+ */
+async function withCrossTabLock<T>(fn: () => Promise<T>): Promise<T> {
+  const locks = typeof navigator !== "undefined" && "locks" in navigator ? navigator.locks : undefined;
+  return locks ? await locks.request(REFRESH_LOCK, () => fn()) : fn();
+}
+
+/**
+ * The one place the app rotates the refresh cookie. Single-flight: concurrent callers in a tab
+ * (page-load session restore and any request that got a 401) share one /auth/refresh call.
+ * Only an explicit 401 ends the session.
  */
 export function refreshSession(): Promise<RefreshOutcome> {
   if (!refreshInFlight) {
-    refreshInFlight = (async (): Promise<RefreshOutcome> => {
-      const refreshToken = getStoredRefreshToken();
-      if (!refreshToken) return { status: "failed" };
+    refreshInFlight = withCrossTabLock(async (): Promise<RefreshOutcome> => {
       try {
         const res = await fetch(`${getApiBaseUrl()}/api/auth/refresh`, {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ refresh_token: refreshToken }),
+          credentials: "include",
         });
         if (res.status === 401) {
           clearStoredSession();
           return { status: "rejected" };
         }
         if (!res.ok) return { status: "failed" };
-        const data = (await res.json()) as { access_token: string; refresh_token: string };
-        storeSessionTokens(data.access_token, data.refresh_token);
+        const data = (await res.json()) as { access_token: string };
+        storeSession(data.access_token);
         return { status: "ok", accessToken: data.access_token };
       } catch {
         return { status: "failed" };
       }
-    })().finally(() => {
+    }).finally(() => {
       refreshInFlight = null;
     });
   }
@@ -154,14 +151,14 @@ export async function authorizedFetch(
   init: RequestInit = {},
   token?: string | null
 ): Promise<Response> {
-  const usedToken = token || getStoredAccessToken();
+  const usedToken = token || getAccessToken();
   const response = await fetch(input, withAuthorization(init, usedToken));
   if (response.status !== 401 || !usedToken) {
     return response;
   }
 
   // Another request may already have refreshed; reuse that token instead of rotating again.
-  const latest = getStoredAccessToken();
+  const latest = getAccessToken();
   const nextToken = latest && latest !== usedToken ? latest : await refreshAccessToken();
   if (!nextToken) {
     return response;

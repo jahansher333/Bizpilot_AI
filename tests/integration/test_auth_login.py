@@ -17,6 +17,7 @@ from app.db.session import get_session
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import User, UserCredential
 from app.modules.auth.password import PasswordService
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -66,7 +67,9 @@ async def test_login_successful_flow_and_me_endpoint(
     assert login_resp.status_code == 200
     data = login_resp.json()
     assert "access_token" in data
-    assert "refresh_token" in data
+    # The refresh token travels only in the HttpOnly cookie, never in the body (SEC-P1 F3).
+    assert "refresh_token" not in data
+    assert refresh_cookie(login_resp)
     assert data["token_type"] == "bearer"
     assert data["expires_in"] == get_settings().auth.access_token_minutes * 60
     token = data["access_token"]

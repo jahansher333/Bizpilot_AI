@@ -140,3 +140,21 @@ def assert_cross_tenant_denial(
         ErrorCode.RESOURCE_NOT_FOUND.value,
         ErrorCode.PERMISSION_DENIED.value,
     }
+
+
+def refresh_cookie(response: httpx.Response) -> str:
+    """Raw refresh token from the bizpilot_refresh Set-Cookie header of a login/refresh response."""
+    from app.modules.auth.cookies import REFRESH_COOKIE_NAME
+
+    for header in response.headers.get_list("set-cookie"):
+        name, _, rest = header.partition("=")
+        if name.strip() == REFRESH_COOKIE_NAME:
+            return rest.split(";", 1)[0]
+    raise AssertionError("response did not set the refresh cookie")
+
+
+def refresh_cookie_header(raw_token: str) -> dict[str, str]:
+    """Request headers presenting a refresh token the way the browser does: as the cookie."""
+    from app.modules.auth.cookies import REFRESH_COOKIE_NAME
+
+    return {"Cookie": f"{REFRESH_COOKIE_NAME}={raw_token}"}

@@ -71,11 +71,13 @@ def create_app(
     app.state.started = False
 
     # Middleware
-    # Bearer tokens travel in the Authorization header, so CORS needs no cookie credentials.
+    # Access tokens travel in the Authorization header; the refresh token is an HttpOnly cookie
+    # (SEC-P1 F3), so credentialed CORS is needed. Origins are an explicit list: "*" is rejected
+    # by Settings, and browsers never send credentials to a wildcard anyway.
     app.add_middleware(
         CORSMiddleware,
         allow_origins=runtime_settings.cors_origins,
-        allow_credentials=False,
+        allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )

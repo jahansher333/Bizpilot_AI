@@ -90,7 +90,9 @@ def test_cors_allows_only_configured_origins(test_settings) -> None:
             headers={"Origin": "http://evil.test", "Access-Control-Request-Method": "POST"},
         )
     assert allowed.headers.get("access-control-allow-origin") == "http://allowed.test"
-    assert "access-control-allow-credentials" not in allowed.headers
+    # The refresh token is an HttpOnly cookie (SEC-P1 F3): credentials only for listed origins.
+    assert allowed.headers.get("access-control-allow-credentials") == "true"
+    # A rejected preflight carries no allow-origin, so browsers refuse it regardless.
     assert "access-control-allow-origin" not in blocked.headers
 
 

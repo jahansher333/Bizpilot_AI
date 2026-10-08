@@ -27,6 +27,7 @@ from app.db.session import get_session
 from app.modules.ai.router import _ORCHESTRATOR
 from app.modules.auth.models import RefreshToken
 from app.modules.organizations.enums import MemberRole
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -60,7 +61,7 @@ async def _create_user(client: AsyncClient, prefix: str) -> tuple[str, str, str]
     )
     assert login.status_code == 200
     data = login.json()
-    return email, data["access_token"], data["refresh_token"]
+    return email, data["access_token"], refresh_cookie(login)
 
 
 async def _create_org(client: AsyncClient, token: str, name: str) -> str:
@@ -295,16 +296,16 @@ async def test_refresh_token_cryptographic_storage_and_replay_defense(
     # 2. Perform legitimate token refresh
     refresh_resp = await client.post(
         "/api/auth/refresh",
-        json={"refresh_token": raw_refresh_token},
+        headers=refresh_cookie_header(raw_refresh_token),
     )
     assert refresh_resp.status_code == 200
-    new_refresh_token = refresh_resp.json()["refresh_token"]
+    new_refresh_token = refresh_cookie(refresh_resp)
     assert new_refresh_token != raw_refresh_token
 
     # 3. Replay attack: attempt to reuse old refresh token -> must be rejected
     replay_resp = await client.post(
         "/api/auth/refresh",
-        json={"refresh_token": raw_refresh_token},
+        headers=refresh_cookie_header(raw_refresh_token),
     )
     assert replay_resp.status_code in (400, 401)
 

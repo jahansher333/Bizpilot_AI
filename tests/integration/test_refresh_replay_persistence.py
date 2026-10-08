@@ -17,6 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.auth.models import RefreshToken
 from app.modules.auth.refresh import hash_refresh_token
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 PASSWORD = "ValidSecretPassword123!"
 
@@ -28,16 +29,16 @@ async def test_replayed_refresh_token_revokes_family_with_real_session_scope(
     email = f"replay_scope_{uuid.uuid4().hex[:8]}@example.com"
     async with AsyncClient(transport=ASGITransport(app=test_app), base_url="http://testserver") as client:
         await client.post("/api/auth/register", json={"email": email, "password": PASSWORD, "display_name": "Replay"})
-        first = (await client.post("/api/auth/login", json={"email": email, "password": PASSWORD})).json()["refresh_token"]
-        rotated = await client.post("/api/auth/refresh", json={"refresh_token": first})
+        first = refresh_cookie(await client.post("/api/auth/login", json={"email": email, "password": PASSWORD}))
+        rotated = await client.post("/api/auth/refresh", headers=refresh_cookie_header(first))
         assert rotated.status_code == 200
-        second = rotated.json()["refresh_token"]
+        second = refresh_cookie(rotated)
 
-        replay = await client.post("/api/auth/refresh", json={"refresh_token": first})
+        replay = await client.post("/api/auth/refresh", headers=refresh_cookie_header(first))
         assert replay.status_code == 401
 
         # The legitimate-looking successor must now be dead too: the theft response stuck.
-        after = await client.post("/api/auth/refresh", json={"refresh_token": second})
+        after = await client.post("/api/auth/refresh", headers=refresh_cookie_header(second))
         assert after.status_code == 401
 
     async with AsyncSession(db_engine) as check:
