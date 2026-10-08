@@ -54,6 +54,10 @@ class AuthenticationSettings(BaseModel):
     login_account_max_failures: int = Field(default=10, ge=1, le=1000)
     login_account_cooldown_minutes: int = Field(default=15, ge=1, le=1440)
     recovery_max_requests: int = Field(default=5, ge=1, le=1000)
+    # Requests per client IP per rate-limit window. Registration runs Argon2, so it stays low;
+    # refresh is cheap but unauthenticated, and shops/offices share one IP, so it is generous.
+    register_max_requests: int = Field(default=10, ge=1, le=10000)
+    refresh_max_requests: int = Field(default=300, ge=1, le=100000)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
@@ -73,6 +77,8 @@ class AISettings(BaseModel):
     timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0)
     max_tool_calls: int = Field(default=5, ge=1, le=20)
     log_raw_prompts: bool = Field(default=False)
+    # Assistant requests per organization per local calendar day (organization timezone).
+    daily_requests_per_organization: int = Field(default=100, ge=1, le=100000)
 
     @model_validator(mode="after")
     def validate_enabled(self) -> "AISettings":
@@ -173,6 +179,8 @@ class Settings(BaseSettings):
                 "bizpilot_auth__login_account_max_failures",
                 "bizpilot_auth__login_account_cooldown_minutes",
                 "bizpilot_auth__recovery_max_requests",
+                "bizpilot_auth__register_max_requests", "bizpilot_auth__refresh_max_requests",
+                "bizpilot_ai__daily_requests_per_organization",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_email__smtp_host", "bizpilot_email__smtp_port",
                 "bizpilot_email__smtp_username", "bizpilot_email__smtp_password",

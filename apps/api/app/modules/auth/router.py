@@ -50,9 +50,15 @@ def _rate_limiter(session: AsyncSession, http_request: Request) -> AuthRateLimit
 )
 async def register(
     request: RegisterRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> RegisterResponse:
-    """Handle user registration."""
+    """Handle user registration with per-IP request limiting."""
+    allowed = await _rate_limiter(session, http_request).consume_register(_client_ip(http_request))
+    # Commit the counter first so it survives any later rollback of the request transaction.
+    await session.commit()
+    if not allowed:
+        raise RateLimitException(RATE_LIMIT_MESSAGE)
     service = RegistrationService(session)
     return await service.register(request)
 
@@ -96,9 +102,15 @@ async def login(
 )
 async def refresh(
     request: RefreshRequest,
+    http_request: Request,
     session: AsyncSession = Depends(get_session),
 ) -> RefreshResponse:
-    """Handle refresh token rotation."""
+    """Handle refresh token rotation with per-IP request limiting."""
+    allowed = await _rate_limiter(session, http_request).consume_refresh(_client_ip(http_request))
+    # Commit the counter first so rejected (rolled back) refresh attempts still count.
+    await session.commit()
+    if not allowed:
+        raise RateLimitException(RATE_LIMIT_MESSAGE)
     service = RefreshService(session)
     return await service.refresh(request)
 

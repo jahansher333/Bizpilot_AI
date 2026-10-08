@@ -9,6 +9,7 @@ Policy (thresholds configurable via AuthenticationSettings):
   once a cooldown passes without failures, and a successful login clears it. No permanent lockout.
 - forgot-password: requests per email, across all client IPs (limits mail volume to one inbox).
 - reset-password: requests per client IP.
+- register and refresh: requests per client IP.
 
 Rejections are uniform 429 responses that never reveal whether an account exists.
 Subjects are stored only as SHA-256 digests. Rows whose window has elapsed are pruned on writes.
@@ -39,6 +40,8 @@ class RateLimitScope(StrEnum):
     LOGIN_ACCOUNT_FAILURE = "login_account_failure"
     FORGOT_PASSWORD = "forgot_password"
     RESET_PASSWORD = "reset_password"
+    REGISTER = "register"
+    REFRESH = "refresh"
 
 
 def rate_limit_key_hash(scope: RateLimitScope, *parts: str) -> str:
@@ -68,6 +71,8 @@ class AuthRateLimiter:
         self._login_account_max_failures = cfg.auth.login_account_max_failures
         self._account_cooldown = timedelta(minutes=cfg.auth.login_account_cooldown_minutes)
         self._recovery_max_requests = cfg.auth.recovery_max_requests
+        self._register_max_requests = cfg.auth.register_max_requests
+        self._refresh_max_requests = cfg.auth.refresh_max_requests
         self._clock = clock
 
     # Login: count failures only
@@ -139,6 +144,18 @@ class AuthRateLimiter:
         key = rate_limit_key_hash(RateLimitScope.RESET_PASSWORD, client_ip)
         count = await self._hit(RateLimitScope.RESET_PASSWORD, key)
         return count <= self._recovery_max_requests
+
+    # Registration and session refresh: count every request per client IP
+
+    async def consume_register(self, client_ip: str) -> bool:
+        """Record a registration request; return False when the limit is exceeded."""
+        key = rate_limit_key_hash(RateLimitScope.REGISTER, client_ip)
+        return await self._hit(RateLimitScope.REGISTER, key) <= self._register_max_requests
+
+    async def consume_refresh(self, client_ip: str) -> bool:
+        """Record a refresh request; return False when the limit is exceeded."""
+        key = rate_limit_key_hash(RateLimitScope.REFRESH, client_ip)
+        return await self._hit(RateLimitScope.REFRESH, key) <= self._refresh_max_requests
 
     # Internals
 

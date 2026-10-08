@@ -10,13 +10,14 @@ docs/architecture/AI-ARCHITECTURE.md Section 27:
 from __future__ import annotations
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from typing import TYPE_CHECKING
 
 from sqlalchemy import (
     BigInteger,
     Boolean,
     CheckConstraint,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -188,4 +189,35 @@ class AIToolCall(Base):
         Index("ix_ai_tool_calls_organization_id", "organization_id"),
         Index("ix_ai_tool_calls_org_tool", "organization_id", "tool_name"),
         Index("ix_ai_tool_calls_created_at", "created_at"),
+    )
+
+
+class AIDailyUsage(Base):
+    """Assistant request counter per organization per local calendar day (SEC-P1 F4).
+
+    Bounds provider cost and abuse: the assistant endpoint refuses requests once an organization
+    reaches its daily allowance. Holds counts only, never prompt content.
+    """
+
+    __tablename__ = "ai_daily_usage"
+
+    organization_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey(
+            "organizations.id",
+            name="fk_ai_daily_usage_organization_id_organizations",
+            ondelete="RESTRICT",
+        ),
+        primary_key=True,
+    )
+    usage_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    request_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+        server_default=text("now()"),
+    )
+
+    __table_args__ = (
+        CheckConstraint("request_count >= 0", name="request_count_nonnegative"),
     )

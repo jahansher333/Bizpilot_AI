@@ -122,6 +122,16 @@ describe("BizPilot AI (R8)", () => {
     expect(vi.mocked(assistantApi.sendAssistantQuery).mock.calls[1][1]).toEqual({ message: "Show my top-selling products.", conversation_history: [] });
   });
 
+  it("explains the daily limit without offering a pointless retry", async () => {
+    vi.mocked(assistantApi.sendAssistantQuery).mockRejectedValueOnce(new HttpError(429));
+    renderWithQueryClient(<AssistantView orgId="org-1" userRole="owner" />);
+    fireEvent.click(screen.getByRole("button", { name: /Show my top-selling products/ }));
+    const notice = await screen.findByRole("alert");
+    expect(notice).toHaveTextContent("Your business has used today’s BizPilot AI questions.");
+    expect(notice).toHaveTextContent("They reset at midnight.");
+    expect(within(notice).queryByRole("button", { name: "Retry" })).not.toBeInTheDocument();
+  });
+
   it("starts a new chat", async () => {
     vi.mocked(assistantApi.sendAssistantQuery).mockResolvedValueOnce(answer());
     renderWithQueryClient(<AssistantView orgId="org-1" userRole="owner" />);

@@ -65,8 +65,10 @@ def test_settings() -> Settings:
             "login_ip_max_failures": 10000,
             "login_account_max_failures": 1000,
             "recovery_max_requests": 1000,
+            "register_max_requests": 10000,
+            "refresh_max_requests": 100000,
         },
-        ai={"enabled": False},
+        ai={"enabled": False, "daily_requests_per_organization": 100000},
         logging={"level": "INFO", "json_logs": False},
     )
 
