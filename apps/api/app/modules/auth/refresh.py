@@ -71,6 +71,9 @@ class RefreshService:
         # Replay detection: if presented token was already consumed/revoked, revoke the ENTIRE family
         if token.revoked_at is not None:
             await self._repository.revoke_token_family(token.token_family_id, now)
+            # Commit before raising: the request scope rolls back on errors, which would otherwise
+            # undo the family revocation and leave the stolen successor token usable.
+            await self._session.commit()
             raise AuthenticationException("Invalid or expired refresh token")
 
         # Absolute session expiration ceiling check
