@@ -152,7 +152,11 @@ async def refresh(
     await session.commit()
     if not allowed:
         raise RateLimitException(RATE_LIMIT_MESSAGE)
-    service = RefreshService(session)
+    settings = getattr(http_request.app.state, "settings", None)
+    service = RefreshService(
+        session,
+        reuse_grace_seconds=settings.auth.refresh_reuse_grace_seconds if settings else None,
+    )
     result = await service.refresh(_cookie_request(http_request, RefreshRequest))
     return _issue_session(response, result)
 

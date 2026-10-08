@@ -175,6 +175,14 @@ class RefreshToken(Base):
         DateTime(timezone=True),
         nullable=True,
     )
+    # Set when this token was consumed by rotation: the successor issued in its place. Lets the
+    # refresh service tell a lost rotation response (client retries) from a replayed stolen token.
+    replaced_by_token_id: Mapped[Optional[uuid.UUID]] = mapped_column(
+        UUID(as_uuid=True),
+        # NO ACTION like every auth foreign key (Founder Option A: no cascading deletes).
+        ForeignKey("refresh_tokens.id"),
+        nullable=True,
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         nullable=False,

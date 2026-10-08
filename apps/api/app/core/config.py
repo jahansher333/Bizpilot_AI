@@ -44,6 +44,10 @@ class AuthenticationSettings(BaseModel):
     jwt_audience: str = "bizpilot-web"
     previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
     refresh_token_days: int = Field(default=30, ge=1)
+    # A just-rotated refresh token presented again within this many seconds, while its successor
+    # is still unused, is treated as a lost rotation response (the page was reloaded or left while
+    # the refresh was in flight) and rotated again instead of revoking the session. 0 disables.
+    refresh_reuse_grace_seconds: int = Field(default=20, ge=0, le=120)
     password_reset_token_minutes: int = Field(default=15, ge=1, le=1440)
     rate_limit_window_minutes: int = Field(default=15, ge=1, le=1440)
     login_max_failures: int = Field(default=5, ge=1, le=1000)
@@ -173,6 +177,7 @@ class Settings(BaseSettings):
                 "bizpilot_auth__jwt_issuer", "bizpilot_auth__jwt_audience",
                 "bizpilot_auth__previous_signing_secrets",
                 "bizpilot_auth__refresh_token_days",
+                "bizpilot_auth__refresh_reuse_grace_seconds",
                 "bizpilot_auth__rate_limit_window_minutes",
                 "bizpilot_auth__login_max_failures",
                 "bizpilot_auth__login_ip_max_failures",
