@@ -35,7 +35,7 @@ def test_local_hosts_are_allowed(url: str) -> None:
 @pytest.mark.parametrize(
     "url",
     [
-        "postgresql://u:p@ep-aged-tree-az930raf-pooler.c-3.ap-southeast-1.aws.neon.tech/neondb?sslmode=require",
+        "postgresql://u:p@ep-example-000000-pooler.c-1.us-east-1.aws.neon.tech/neondb?sslmode=require",
         "postgresql://u:p@db.example.com/bizpilot",
         "postgresql://u:p@10.0.0.5/bizpilot",
         "postgresql:///bizpilot",
