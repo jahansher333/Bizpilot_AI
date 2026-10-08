@@ -13,7 +13,7 @@ from app.core.config import get_settings
 from app.core.errors import AuthenticationException
 from app.modules.auth.account_policy import AccountPolicyService
 from app.modules.auth.enums import UserStatus
-from app.modules.auth.password import PasswordService
+from app.modules.auth.password import PasswordService, run_password_work
 from app.modules.auth.refresh import generate_refresh_token, hash_refresh_token
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schemas import (
@@ -59,11 +59,11 @@ class RegistrationService:
         existing_user = await self._repository.get_user_by_email(email_normalized)
         if existing_user is not None:
             # Strictly non-enumerating: perform comparable dummy verification work
-            self._password_service.verify_dummy()
+            await run_password_work(self._password_service.verify_dummy)
             return RegisterResponse()
 
         # Hash exact raw password using Argon2id
-        password_hash = self._password_service.hash_password(request.password)
+        password_hash = await run_password_work(self._password_service.hash_password, request.password)
 
         # Atomic persistence with savepoint protection for concurrent duplicate races
         try:
@@ -80,7 +80,7 @@ class RegistrationService:
         except IntegrityError:
             # Concurrent race condition: another request inserted the same email_normalized.
             # Savepoint was rolled back by begin_nested(), leaving the session valid.
-            self._password_service.verify_dummy()
+            await run_password_work(self._password_service.verify_dummy)
             return RegisterResponse()
 
         return RegisterResponse()
@@ -122,18 +122,18 @@ class LoginService:
         # Step 1: User lookup
         user = await self._repository.get_user_by_email(email_normalized)
         if user is None:
-            self._password_service.verify_dummy()
+            await run_password_work(self._password_service.verify_dummy)
             raise AuthenticationException("Invalid email or password")
 
         # Step 2: Credential lookup
         credential = await self._repository.get_credential_by_user_id(user.id)
         if credential is None:
-            self._password_service.verify_dummy()
+            await run_password_work(self._password_service.verify_dummy)
             raise AuthenticationException("Invalid email or password")
 
         # Step 3: Password verification (constant-time native argon2-cffi)
-        verify_result = self._password_service.verify_password(
-            request.password, credential.password_hash
+        verify_result = await run_password_work(
+            self._password_service.verify_password, request.password, credential.password_hash
         )
         if not verify_result.valid:
             raise AuthenticationException("Invalid email or password")
@@ -156,7 +156,7 @@ class LoginService:
         try:
             async with self._session.begin_nested():
                 if verify_result.needs_rehash:
-                    new_hash = self._password_service.hash_password(request.password)
+                    new_hash = await run_password_work(self._password_service.hash_password, request.password)
                     await self._repository.update_password_hash(user.id, new_hash)
                 await self._repository.update_last_login_at(user.id, now)
                 await self._repository.create_refresh_token(
