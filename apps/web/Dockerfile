@@ -3,13 +3,13 @@
 # NEXT_PUBLIC_API_URL is inlined into the browser bundle at build time, so each environment
 # needs its own image. The browser calls the API directly (CORS), which keeps the real client IP
 # visible to the API's rate limits.
-FROM node:20-alpine AS deps
+FROM node:26-alpine AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 RUN npm ci
 
 
-FROM node:20-alpine AS build
+FROM node:26-alpine AS build
 WORKDIR /app
 ARG NEXT_PUBLIC_API_URL
 RUN test -n "$NEXT_PUBLIC_API_URL" || (echo "NEXT_PUBLIC_API_URL build arg is required" && exit 1)
@@ -20,7 +20,7 @@ COPY . .
 RUN npm run build
 
 
-FROM node:20-alpine
+FROM node:26-alpine
 WORKDIR /app
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
