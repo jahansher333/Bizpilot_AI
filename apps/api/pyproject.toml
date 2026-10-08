@@ -16,7 +16,7 @@ dependencies = [
   "python-dotenv>=1.0,<2",
   "argon2-cffi>=23.1.0,<24",
   "email-validator>=2.0,<3",
-  "pyjwt>=2.8.0,<3",
+  "pyjwt>=2.15.1,<3",
   "uvicorn[standard]>=0.30,<1",
   # AI assistant (app/modules/ai). openai-agents is pre-1.0: pinned to the version the tests run on.
   "openai>=2.14,<3",
