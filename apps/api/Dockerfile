@@ -5,9 +5,12 @@
 FROM python:3.12-slim AS build
 
 WORKDIR /build
+# Exact, hash-checked versions from the lock file; the package itself adds no dependencies.
+COPY apps/api/requirements.lock apps/api/requirements.lock
+RUN pip install --no-cache-dir --prefix=/install --require-hashes -r apps/api/requirements.lock
 COPY apps/api/pyproject.toml apps/api/pyproject.toml
 COPY apps/api/app apps/api/app
-RUN pip install --no-cache-dir --prefix=/install ./apps/api
+RUN pip install --no-cache-dir --prefix=/install --no-deps ./apps/api
 
 
 FROM python:3.12-slim
