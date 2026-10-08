@@ -30,6 +30,8 @@ vi.mock("@/hooks/use-auth", () => ({
 
 vi.mock("@/lib/api/organizations", () => ({
   listMembers: vi.fn(),
+  listInvitations: vi.fn(),
+  revokeInvitation: vi.fn(),
   inviteMember: vi.fn(),
   updateMemberRole: vi.fn(),
   revokeMember: vi.fn(),
@@ -46,7 +48,10 @@ const member = (overrides: Record<string, unknown>) => ({
 const members = [
   member({ id: "m-owner", user_id: "user-owner", role: "owner", status: "active", email: "owner@shop.pk", display_name: "Owner Khan" }),
   member({ id: "m-staff", user_id: "user-staff", role: "staff", status: "active", email: "staff@shop.pk", display_name: "Ali Staff", created_at: "2026-10-02T00:00:00Z" }),
-  member({ id: "m-inv", user_id: "user-inv", role: "manager", status: "invited", email: "sana@shop.pk", display_name: "", created_at: "2026-10-03T00:00:00Z" }),
+] as any[];
+// Invitations are addressed to emails (SEC-P1 F5): no account, name or user ID.
+const invitations = [
+  { id: "inv-1", organization_id: "org-1", email: "sana@shop.pk", role: "manager", status: "pending", created_at: "2026-10-03T00:00:00Z", updated_at: "2026-10-03T00:00:00Z" },
 ] as any[];
 
 function setRole(role: string) {
@@ -63,6 +68,7 @@ describe("Team (R9)", () => {
     vi.clearAllMocks();
     setRole("owner");
     vi.mocked(orgApi.listMembers).mockResolvedValue(members);
+    vi.mocked(orgApi.listInvitations).mockResolvedValue(invitations);
   });
 
   it("lists members with role, status, join date and marks you", async () => {
@@ -90,7 +96,7 @@ describe("Team (R9)", () => {
   });
 
   it("invites a member with a chosen role", async () => {
-    vi.mocked(orgApi.inviteMember).mockResolvedValue(members[2]);
+    vi.mocked(orgApi.inviteMember).mockResolvedValue(invitations[0]);
     renderWithClient(<TeamView orgId="org-1" />);
     fireEvent.click(screen.getByRole("button", { name: /invite member/i }));
     const dialog = screen.getByRole("dialog", { name: "Invite member" });
@@ -124,6 +130,20 @@ describe("Team (R9)", () => {
     expect(await screen.findByRole("alert")).toHaveTextContent("Cannot demote the last owner");
   });
 
+  it("shows a pending invitation by email only and revokes it through the invitation endpoint", async () => {
+    vi.mocked(orgApi.revokeInvitation).mockResolvedValue({ ...invitations[0], status: "revoked" });
+    renderWithClient(<TeamView orgId="org-1" />);
+    const revoke = await screen.findByRole("button", { name: "Revoke invitation for sana@shop.pk" });
+    const row = revoke.closest("tr")!;
+    expect(within(row).getAllByText("sana@shop.pk")).toHaveLength(2);
+    expect(within(row).queryByRole("combobox")).not.toBeInTheDocument();
+    fireEvent.click(revoke);
+    const dialog = screen.getByRole("alertdialog", { name: "Revoke the invitation for sana@shop.pk?" });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Revoke invitation" }));
+    await waitFor(() => expect(orgApi.revokeInvitation).toHaveBeenCalledWith("org-1", "inv-1", undefined));
+    expect(orgApi.revokeMember).not.toHaveBeenCalled();
+  });
+
   it("removes a member after confirming in a dialog", async () => {
     vi.mocked(orgApi.revokeMember).mockResolvedValue({ ...members[1], status: "revoked" });
     renderWithClient(<TeamView orgId="org-1" />);
@@ -138,6 +158,7 @@ describe("Team (R9)", () => {
     renderWithClient(<TeamView orgId="org-1" />);
     expect(screen.getByRole("heading", { name: "Only Owners can manage the team" })).toBeInTheDocument();
     expect(orgApi.listMembers).not.toHaveBeenCalled();
+    expect(orgApi.listInvitations).not.toHaveBeenCalled();
   });
 });
 
@@ -197,7 +218,7 @@ describe("Pending invitations (FIX-006)", () => {
   it("accepts an invitation and opens the workspace", async () => {
     vi.mocked(orgApi.listMyInvitations).mockResolvedValue([
       {
-        membership_id: "m-1",
+        invitation_id: "inv-9",
         organization_id: "org-9",
         organization_display_name: "Karachi Traders",
         role: "staff",

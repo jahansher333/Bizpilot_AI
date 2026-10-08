@@ -34,6 +34,9 @@ _TEST_DATABASE_URL = resolve_test_database_url(os.environ, _dotenv) or PLACEHOLD
 os.environ["BIZPILOT_DATABASE__URL"] = _TEST_DATABASE_URL
 os.environ.setdefault("BIZPILOT_ENVIRONMENT", "test")
 os.environ.setdefault("BIZPILOT_AUTH__SIGNING_SECRET", "test-only-signing-secret")
+# Existing replay tests replay immediately after rotation; keep detection strict by default.
+# tests/security/test_refresh_reuse_grace.py covers the production grace window explicitly.
+os.environ.setdefault("BIZPILOT_AUTH__REFRESH_REUSE_GRACE_SECONDS", "0")
 
 
 def pytest_configure(config: pytest.Config) -> None:
@@ -63,9 +66,13 @@ def test_settings() -> Settings:
             "signing_secret": "test-only-signing-secret",
             "login_max_failures": 1000,
             "login_ip_max_failures": 10000,
+            "login_account_max_failures": 1000,
             "recovery_max_requests": 1000,
+            "register_max_requests": 10000,
+            "refresh_max_requests": 100000,
+            "refresh_reuse_grace_seconds": 0,
         },
-        ai={"enabled": False},
+        ai={"enabled": False, "daily_requests_per_organization": 100000},
         logging={"level": "INFO", "json_logs": False},
     )
 

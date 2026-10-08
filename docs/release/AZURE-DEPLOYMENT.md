@@ -19,6 +19,34 @@ The browser calls the API directly at its own https origin (`NEXT_PUBLIC_API_URL
 Next.js `/api` proxy. Going through the proxy would make every request reach the API from the web
 container's address, and the per-IP rate limits would then count all users as one client.
 
+### Production domains
+
+Decided 2026-10-09: web at `https://app.bizpilot.ai`, API at `https://api.bizpilot.ai`.
+
+| Setting | Value |
+| --- | --- |
+| Web build arg `NEXT_PUBLIC_API_URL` | `https://api.bizpilot.ai` |
+| `BIZPILOT_CORS_ORIGINS` | `["https://app.bizpilot.ai"]` |
+| `BIZPILOT_EMAIL__FRONTEND_BASE_URL` | `https://app.bizpilot.ai` |
+
+The refresh cookie is deliberately **host-only** on `api.bizpilot.ai` (no `Domain` attribute).
+`app.bizpilot.ai` and `api.bizpilot.ai` are the same site, so `SameSite=Strict` already lets the
+browser send it with the app's API calls; `Domain=.bizpilot.ai` would add nothing for the app but
+would also send the 30-day refresh token to every other `*.bizpilot.ai` host.
+
+### Session cookie: web and API must be on the same site
+
+Since SEC-P1 F3 the refresh token is an `HttpOnly; Secure; SameSite=Strict` cookie set by the API
+(`bizpilot_refresh`, `Path=/api/auth`); the access token stays in the page's memory. Browsers only
+send a `SameSite=Strict` cookie on requests between the **same site** (same registrable domain), so:
+
+- Serve both apps from subdomains of one domain over https, e.g. `app.<domain>` and `api.<domain>`.
+- Do not rely on the default `*.azurecontainerapps.io` hostnames for the two apps: they are not
+  guaranteed to count as the same site, and if they do not, sign-in works but every page load signs
+  the user out (the browser never sends the cookie to `/api/auth/refresh`).
+- `BIZPILOT_CORS_ORIGINS` must list the web origin exactly: CORS now allows credentials for it, and
+  `/api/auth/refresh` and `/api/auth/logout` reject browser requests from any other `Origin`.
+
 ## Build
 
 ```bash
@@ -47,7 +75,8 @@ mode, non-TLS database connections, `*`/http CORS origins and non-TLS SMTP.
 | `BIZPILOT_EMAIL__FRONTEND_BASE_URL` | `https://<web-domain>` |
 | `BIZPILOT_AI__ENABLED` / `_API_KEY` / `_MODEL` | keep `false` until the AI provider's data terms are reviewed |
 | `BIZPILOT_LOGGING__JSON_LOGS` | `true` |
-| `FORWARDED_ALLOW_IPS` | image default `*`; safe only while the app is reachable solely through Container Apps ingress |
+| `FORWARDED_ALLOW_IPS` | Image default `10.0.0.0/8` (Azure private range, founder decision 2026-10-09). Override with the exact ingress subnet once known (the Container Apps environment's infrastructure subnet, comma-separated if several). If that subnet is outside `10.0.0.0/8` (e.g. `172.16.0.0/12`), the override is **required**, or every client is counted as the ingress IP. The image refuses to start with `*` or an empty value: trusting every proxy makes uvicorn take the client-written left-most `X-Forwarded-For` entry, which defeats every per-IP rate limit. |
+| `BIZPILOT_AUTH__LOGIN_ACCOUNT_MAX_FAILURES` / `_COOLDOWN_MINUTES` | defaults `10` / `15`: consecutive failed logins per account (any IP) before a temporary cooldown |
 
 ## Probes
 

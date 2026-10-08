@@ -131,14 +131,19 @@ async def test_cross_tenant_idor_member_operations_rejected_404(
     org_b = await _create_org(sec_client, token_b, "Org B")
 
     # Org B adds a staff member
-    staff_email, _ = await _register_and_login(sec_client, "staff_b")
+    staff_email, staff_b_token = await _register_and_login(sec_client, "staff_b")
     inv_b = await sec_client.post(
         f"/api/organizations/{org_b}/members",
         json={"email": staff_email, "role": "staff"},
         headers={"Authorization": f"Bearer {token_b}"},
     )
     assert inv_b.status_code == 201
-    member_b_id = inv_b.json()["id"]
+    accepted_b = await sec_client.post(
+        f"/api/organizations/{org_b}/members/accept",
+        headers={"Authorization": f"Bearer {staff_b_token}"},
+    )
+    # A real Org B membership, so the attacks below target an existing record.
+    member_b_id = accepted_b.json()["id"]
 
     # Attack 1: Owner A tries to list members of Org B -> 404 (does not disclose Org B exists)
     r1 = await sec_client.get(
@@ -205,13 +210,13 @@ async def test_privilege_escalation_staff_cannot_manage_members_403(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert inv_resp.status_code == 201
-    staff_member_id = inv_resp.json()["id"]
 
-    # Staff accepts invite
-    await sec_client.post(
+    # Staff accepts invite; the membership ID comes from accepting (SEC-P1 F5)
+    accepted = await sec_client.post(
         f"/api/organizations/{org_id}/members/accept",
         headers={"Authorization": f"Bearer {staff_token}"},
     )
+    staff_member_id = accepted.json()["id"]
 
     # 1. Staff attempts to list members -> 403 Forbidden
     r_list = await sec_client.get(
@@ -263,12 +268,11 @@ async def test_revoked_member_immediately_loses_organization_access(
         json={"email": staff_email, "role": "staff"},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
-    staff_member_id = inv_resp.json()["id"]
-
-    await sec_client.post(
+    accepted = await sec_client.post(
         f"/api/organizations/{org_id}/members/accept",
         headers={"Authorization": f"Bearer {staff_token}"},
     )
+    staff_member_id = accepted.json()["id"]
 
     # Verify staff currently has access to the organization
     get_org_resp = await sec_client.get(

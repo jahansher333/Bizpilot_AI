@@ -72,7 +72,7 @@ export function TeamInviteModal({ isOpen, onClose, orgId, orgName }: TeamInviteM
           Email
         </label>
         <input id="inv-email" className="input" type="email" autoComplete="off" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@business.pk" />
-        <span className="hint">They need a BizPilot account with this email to accept.</span>
+        <span className="hint">They can accept after signing in to BizPilot with this email — or creating an account with it.</span>
       </div>
       <fieldset style={{ border: 0, margin: 0, padding: 0, display: "flex", flexDirection: "column", gap: 8 }}>
         <legend className="label" style={{ marginBottom: 6 }}>

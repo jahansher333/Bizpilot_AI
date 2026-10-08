@@ -174,16 +174,34 @@ class AuthRepository:
         result = await self._session.execute(stmt)
         return result.scalar_one_or_none()
 
+    async def get_refresh_token_by_id_for_update(
+        self,
+        token_id: uuid.UUID,
+    ) -> Optional[RefreshToken]:
+        """Fetch a refresh token by ID under row-level lock."""
+        stmt = (
+            select(RefreshToken)
+            .where(RefreshToken.id == token_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none()
+
     async def revoke_refresh_token(
         self,
         token_id: uuid.UUID,
         revoked_at: datetime,
+        replaced_by_token_id: Optional[uuid.UUID] = None,
     ) -> None:
-        """Mark an individual refresh token as revoked/consumed."""
+        """Mark an individual refresh token as revoked/consumed, recording its successor if rotated."""
+        values: dict[str, object] = {"revoked_at": revoked_at}
+        if replaced_by_token_id is not None:
+            values["replaced_by_token_id"] = replaced_by_token_id
         stmt = (
             update(RefreshToken)
             .where(RefreshToken.id == token_id)
-            .values(revoked_at=revoked_at)
+            .values(**values)
         )
         await self._session.execute(stmt)
         await self._session.flush()

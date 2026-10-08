@@ -5,10 +5,11 @@ export const TEST_ORG_B_ID = '01a0e000-0000-7000-8000-000000000002';
 export const TEST_USER_ID = '01a0e000-0000-7000-8000-000000000010';
 
 export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staff' = 'owner') {
-  // Signed-in session: the app restores it on load by exchanging the stored refresh token
-  // (FIX-008 workspace route guard sends signed-out visitors to /login).
+  // Signed-in session: the app restores it on load by exchanging the HttpOnly refresh cookie
+  // (mocked below) for an access token; the session hint tells it a cookie exists (SEC-P1 F3).
+  // FIX-008 workspace route guard sends signed-out visitors to /login.
   await page.addInitScript(() => {
-    window.localStorage.setItem('bizpilot_refresh_token', 'e2e-refresh-token');
+    window.localStorage.setItem('bizpilot_session', '1');
   });
   await page.route('**/api/auth/refresh', async (route) => {
     await route.fulfill({
@@ -16,7 +17,6 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
       contentType: 'application/json',
       body: JSON.stringify({
         access_token: 'e2e-access-token',
-        refresh_token: 'e2e-refresh-token',
         token_type: 'bearer',
         expires_in: 900,
       }),
@@ -93,6 +93,17 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
       body: JSON.stringify([
         { id: 'm-1', organization_id: TEST_ORG_ID, user_id: TEST_USER_ID, role: 'owner', status: 'active', created_at: '2026-09-28T00:00:00Z', email: 'owner@lahorestore.pk', display_name: 'Haji Muhammad' },
         { id: 'm-2', organization_id: TEST_ORG_ID, user_id: 'u-2', role: 'staff', status: 'active', created_at: '2026-09-30T00:00:00Z', email: 'counter@lahorestore.pk', display_name: 'Bilal Counter' },
+      ]),
+    });
+  });
+
+  // Mock pending invitations: addressed to emails, never showing an account (SEC-P1 F5)
+  await page.route(`**/api/organizations/${TEST_ORG_ID}/invitations*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'inv-1', organization_id: TEST_ORG_ID, email: 'new.hire@lahorestore.pk', role: 'staff', status: 'pending', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' },
       ]),
     });
   });

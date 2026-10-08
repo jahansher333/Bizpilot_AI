@@ -26,17 +26,19 @@ WORKDIR /app
 COPY --chown=bizpilot:bizpilot alembic.ini alembic.ini
 COPY --chown=bizpilot:bizpilot alembic alembic
 COPY --chown=bizpilot:bizpilot apps/api/app apps/api/app
+COPY --chown=bizpilot:bizpilot --chmod=0755 apps/api/start.sh start.sh
 
+# FORWARDED_ALLOW_IPS: proxies trusted to set X-Forwarded-For, so rate limits see the real client IP.
+# Defaults to Azure's private 10.0.0.0/8 range (founder decision 2026-10-09); override at runtime with
+# the exact ingress subnet when it is known. start.sh refuses "*" or an empty value, because trusting
+# every proxy lets any client choose its own IP through X-Forwarded-For.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     BIZPILOT_ENVIRONMENT=production \
     BIZPILOT_DEBUG=false \
-    # Trust X-Forwarded-For only from the platform ingress, so rate limits see the real client IP.
-    # "*" is safe only while the container is reachable solely through that ingress (Azure Container
-    # Apps internal port); set the ingress address range instead if anything else can reach it.
-    FORWARDED_ALLOW_IPS="*"
+    FORWARDED_ALLOW_IPS=10.0.0.0/8
 
 USER bizpilot
 EXPOSE 8000
 
-CMD ["uvicorn", "app.main:app", "--app-dir", "apps/api", "--host", "0.0.0.0", "--port", "8000", "--proxy-headers", "--no-server-header"]
+CMD ["/app/start.sh"]

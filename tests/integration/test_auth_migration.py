@@ -86,7 +86,8 @@ async def test_foreign_key_delete_rule_is_no_action_or_restrict(
     )
     res = await db_session.execute(fk_query)
     rows = res.fetchall()
-    assert len(rows) == 3
+    # 3 original keys + refresh_tokens.replaced_by_token_id (migration 0017)
+    assert len(rows) == 4
 
     for constraint_name, delete_rule in rows:
         # In PostgreSQL information_schema, default restrictive is 'NO ACTION' or 'RESTRICT'

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from unittest.mock import AsyncMock
 
 import pytest
@@ -19,11 +19,12 @@ from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import User
 from app.modules.auth.tokens import AuthenticatedUser
 from app.modules.organizations.enums import (
+    InvitationStatus,
     MemberRole,
     MemberStatus,
     OrganizationStatus,
 )
-from app.modules.organizations.models import Organization, OrganizationMember
+from app.modules.organizations.models import INVITATION_TTL, Organization, OrganizationInvitation, OrganizationMember
 from app.modules.organizations.repository import OrganizationRepository
 from app.modules.organizations.schemas import (
     InviteMemberRequest,
@@ -186,124 +187,102 @@ async def test_list_members_not_found_for_outsider() -> None:
         await service.list_members(org_id, outsider)
 
 
+def _make_invitation(
+    org_id: uuid.UUID,
+    email: str = "invitee@example.com",
+    role: str = MemberRole.STAFF.value,
+    expires_in: timedelta = timedelta(days=7),
+) -> OrganizationInvitation:
+    now = datetime.now(timezone.utc)
+    return OrganizationInvitation(
+        id=uuid.uuid4(),
+        organization_id=org_id,
+        email_normalized=email,
+        role=role,
+        status=InvitationStatus.PENDING.value,
+        created_at=now,
+        updated_at=now,
+        expires_at=now + expires_in,
+    )
+
+
+def _invite_repo(owner_member: OrganizationMember) -> AsyncMock:
+    repo = AsyncMock(spec=OrganizationRepository)
+    repo.get_member.return_value = owner_member
+    repo.get_active_member_by_email.return_value = None
+    repo.get_pending_invitation_for_email.return_value = None
+    return repo
+
+
 @pytest.mark.asyncio
-async def test_invite_member_success() -> None:
-    """Verify Owner can invite a registered user."""
+async def test_invite_member_creates_email_invitation_with_seven_day_expiry() -> None:
+    """Owner invites an email address; no account lookup is involved (SEC-P1 F5)."""
     org_id = uuid.uuid4()
     owner = _make_active_user()
-    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
+    mock_repo = _invite_repo(_make_org_member(org_id, owner.id, role=MemberRole.OWNER.value))
+    mock_repo.create_invitation.side_effect = lambda **kw: _make_invitation(
+        org_id, email=kw["email_normalized"], role=kw["role"], expires_in=kw["expires_at"] - datetime.now(timezone.utc)
+    )
 
-    target_id = uuid.uuid4()
-    target_user = _make_user_entity(target_id, email="invitee@example.com")
-    new_member = _make_org_member(org_id, target_id, role=MemberRole.STAFF.value, status=MemberStatus.INVITED.value)
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
+    resp = await service.invite_member(org_id, owner, InviteMemberRequest(email="Invitee@Example.com", role=MemberRole.STAFF))
 
-    mock_session = AsyncMock()
-    mock_repo = AsyncMock(spec=OrganizationRepository)
-    mock_repo.get_member.side_effect = [owner_member, None]  # first caller check, second target check
-    mock_repo.get_user_by_email.return_value = target_user
-    mock_repo.create_member.return_value = new_member
-
-    service = OrganizationService(session=mock_session, repository=mock_repo)
-    req = InviteMemberRequest(email="invitee@example.com", role=MemberRole.STAFF)
-    resp = await service.invite_member(org_id, owner, req)
-
-    assert resp.status == "invited"
+    assert resp.status == "pending"
     assert resp.role == "staff"
     assert resp.email == "invitee@example.com"
-    mock_repo.create_member.assert_awaited_once()
+    kwargs = mock_repo.create_invitation.await_args.kwargs
+    assert kwargs["email_normalized"] == "invitee@example.com"
+    assert timedelta(days=6, hours=23) < kwargs["expires_at"] - datetime.now(timezone.utc) <= INVITATION_TTL
+    mock_repo.get_user_by_email.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_invite_member_unregistered_user_rejected_404() -> None:
-    """Verify inviting unregistered email returns 404 with registration guidance (Founder Decision 2)."""
+async def test_invite_member_response_shape_never_depends_on_accounts() -> None:
+    """The response model carries no account fields at all, so it cannot leak account existence."""
     org_id = uuid.uuid4()
     owner = _make_active_user()
-    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
+    mock_repo = _invite_repo(_make_org_member(org_id, owner.id, role=MemberRole.OWNER.value))
+    mock_repo.create_invitation.return_value = _make_invitation(org_id, email="someone@example.com")
 
-    mock_session = AsyncMock()
-    mock_repo = AsyncMock(spec=OrganizationRepository)
-    mock_repo.get_member.return_value = owner_member
-    mock_repo.get_user_by_email.return_value = None
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
+    resp = await service.invite_member(org_id, owner, InviteMemberRequest(email="someone@example.com", role=MemberRole.STAFF))
 
-    service = OrganizationService(session=mock_session, repository=mock_repo)
-    req = InviteMemberRequest(email="nonexistent@example.com", role=MemberRole.STAFF)
-    with pytest.raises(NotFoundException) as exc_info:
-        await service.invite_member(org_id, owner, req)
-
-    assert "register first" in str(exc_info.value.message)
-    assert "nonexistent@example.com" not in str(exc_info.value.message)
-
-
-@pytest.mark.asyncio
-async def test_invite_member_inactive_user_gets_same_message_as_missing() -> None:
-    """Missing and inactive accounts must be indistinguishable to the inviting owner (FIX-006)."""
-    org_id = uuid.uuid4()
-    owner = _make_active_user()
-    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
-    inactive_target = _make_user_entity(uuid.uuid4())
-    inactive_target.status = "disabled"
-
-    messages = []
-    for target in (None, inactive_target):
-        mock_repo = AsyncMock(spec=OrganizationRepository)
-        mock_repo.get_member.return_value = owner_member
-        mock_repo.get_user_by_email.return_value = target
-        service = OrganizationService(session=AsyncMock(), repository=mock_repo)
-        with pytest.raises(NotFoundException) as exc_info:
-            await service.invite_member(
-                org_id, owner, InviteMemberRequest(email="someone@example.com", role=MemberRole.STAFF)
-            )
-        messages.append(exc_info.value.message)
-
-    assert messages[0] == messages[1]
+    assert "user_id" not in resp.model_dump()
+    assert "display_name" not in resp.model_dump()
 
 
 @pytest.mark.asyncio
 async def test_invite_member_already_active_rejected_409() -> None:
-    """Verify inviting already active member returns 409 Conflict."""
+    """Inviting a current member of this organization is a conflict (owners already see members)."""
     org_id = uuid.uuid4()
     owner = _make_active_user()
-    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
+    mock_repo = _invite_repo(_make_org_member(org_id, owner.id, role=MemberRole.OWNER.value))
+    mock_repo.get_active_member_by_email.return_value = _make_org_member(org_id, uuid.uuid4())
 
-    target_id = uuid.uuid4()
-    target_user = _make_user_entity(target_id)
-    existing_active = _make_org_member(org_id, target_id, status=MemberStatus.ACTIVE.value)
-
-    mock_session = AsyncMock()
-    mock_repo = AsyncMock(spec=OrganizationRepository)
-    mock_repo.get_member.side_effect = [owner_member, existing_active]
-    mock_repo.get_user_by_email.return_value = target_user
-
-    service = OrganizationService(session=mock_session, repository=mock_repo)
-    req = InviteMemberRequest(email="target@example.com", role=MemberRole.STAFF)
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
     with pytest.raises(ConflictException) as exc_info:
-        await service.invite_member(org_id, owner, req)
+        await service.invite_member(org_id, owner, InviteMemberRequest(email="target@example.com", role=MemberRole.STAFF))
 
-    assert "already an active member" in str(exc_info.value.message)
+    assert "already a member" in str(exc_info.value.message)
+    mock_repo.create_invitation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
-async def test_invite_member_already_invited_rejected_409() -> None:
-    """Verify inviting user who already has pending invitation returns 409 Conflict."""
+async def test_invite_member_reinvite_updates_role_and_renews_expiry() -> None:
+    """Re-inviting an email with an open invitation updates it instead of failing."""
     org_id = uuid.uuid4()
     owner = _make_active_user()
-    owner_member = _make_org_member(org_id, owner.id, role=MemberRole.OWNER.value)
+    mock_repo = _invite_repo(_make_org_member(org_id, owner.id, role=MemberRole.OWNER.value))
+    existing = _make_invitation(org_id, role=MemberRole.STAFF.value, expires_in=timedelta(days=-1))
+    mock_repo.get_pending_invitation_for_email.return_value = existing
 
-    target_id = uuid.uuid4()
-    target_user = _make_user_entity(target_id)
-    existing_invited = _make_org_member(org_id, target_id, status=MemberStatus.INVITED.value)
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
+    resp = await service.invite_member(org_id, owner, InviteMemberRequest(email="invitee@example.com", role=MemberRole.MANAGER))
 
-    mock_session = AsyncMock()
-    mock_repo = AsyncMock(spec=OrganizationRepository)
-    mock_repo.get_member.side_effect = [owner_member, existing_invited]
-    mock_repo.get_user_by_email.return_value = target_user
-
-    service = OrganizationService(session=mock_session, repository=mock_repo)
-    req = InviteMemberRequest(email="target@example.com", role=MemberRole.STAFF)
-    with pytest.raises(ConflictException) as exc_info:
-        await service.invite_member(org_id, owner, req)
-
-    assert "already has a pending invitation" in str(exc_info.value.message)
+    assert resp.id == str(existing.id)
+    assert existing.role == "manager"
+    assert existing.expires_at > datetime.now(timezone.utc) + timedelta(days=6)
+    mock_repo.create_invitation.assert_not_awaited()
 
 
 @pytest.mark.asyncio
@@ -372,18 +351,38 @@ async def test_revoke_member_last_owner_revocation_blocked() -> None:
 
 @pytest.mark.asyncio
 async def test_accept_invitation_success() -> None:
-    """Verify invited user can accept their pending invitation."""
+    """The invitee accepts the invitation addressed to their own email; a membership is created."""
     org_id = uuid.uuid4()
     invitee = _make_active_user()
-    invitee_member = _make_org_member(org_id, invitee.id, role=MemberRole.STAFF.value, status=MemberStatus.INVITED.value)
-    invitee_user = _make_user_entity(invitee.id)
+    invitation = _make_invitation(org_id, email=invitee.email_normalized)
+    created_member = _make_org_member(org_id, invitee.id, role=MemberRole.STAFF.value)
 
-    mock_session = AsyncMock()
     mock_repo = AsyncMock(spec=OrganizationRepository)
-    mock_repo.get_pending_invitation.return_value = (invitee_member, invitee_user)
+    mock_repo.get_pending_invitation_for_email.return_value = invitation
+    mock_repo.get_organization_by_id.return_value = Organization(id=org_id, display_name="Org", status="active")
+    mock_repo.get_member.return_value = None
+    mock_repo.create_member.return_value = created_member
 
-    service = OrganizationService(session=mock_session, repository=mock_repo)
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
     resp = await service.accept_invitation(org_id, invitee)
 
     assert resp.status == "active"
-    assert invitee_member.status == MemberStatus.ACTIVE.value
+    assert invitation.status == InvitationStatus.ACCEPTED.value
+    assert invitation.accepted_by_user_id == invitee.id
+    mock_repo.get_pending_invitation_for_email.assert_awaited_once_with(org_id, invitee.email_normalized, for_update=True)
+
+
+@pytest.mark.asyncio
+async def test_accept_expired_invitation_is_not_found() -> None:
+    org_id = uuid.uuid4()
+    invitee = _make_active_user()
+    mock_repo = AsyncMock(spec=OrganizationRepository)
+    mock_repo.get_pending_invitation_for_email.return_value = _make_invitation(
+        org_id, email=invitee.email_normalized, expires_in=timedelta(seconds=-1)
+    )
+    mock_repo.get_organization_by_id.return_value = Organization(id=org_id, display_name="Org", status="active")
+
+    service = OrganizationService(session=AsyncMock(), repository=mock_repo)
+    with pytest.raises(NotFoundException):
+        await service.accept_invitation(org_id, invitee)
+    mock_repo.create_member.assert_not_awaited()

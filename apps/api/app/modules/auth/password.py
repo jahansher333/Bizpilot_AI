@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+import asyncio
+import threading
+import weakref
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Optional
+from typing import Optional, ParamSpec, TypeVar
 
 from argon2 import PasswordHasher, Type
 from argon2.exceptions import (
@@ -63,6 +67,39 @@ COMMON_PASSWORDS_DENYLIST: frozenset[str] = frozenset(
 )
 
 
+# Argon2 is CPU- and memory-heavy (64 MiB per call by default). Run inline, every hash would stall
+# the event loop and every other request on the worker; unbounded in threads, a flood of logins or
+# registrations could exhaust memory. So hashing runs in worker threads, at most this many at once.
+HASHING_CONCURRENCY = 4
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+# One semaphore per event loop: an asyncio.Semaphore must not be shared across loops.
+_hashing_slots: "weakref.WeakKeyDictionary[asyncio.AbstractEventLoop, asyncio.Semaphore]" = (
+    weakref.WeakKeyDictionary()
+)
+
+
+_DUMMY_PASSWORD = "dummy-password-for-timing-mitigation"
+_dummy_hashes: dict[tuple[int, int, int], str] = {}
+_dummy_hashes_lock = threading.Lock()
+
+
+def _slots_for_running_loop() -> asyncio.Semaphore:
+    loop = asyncio.get_running_loop()
+    slots = _hashing_slots.get(loop)
+    if slots is None:
+        slots = _hashing_slots[loop] = asyncio.Semaphore(HASHING_CONCURRENCY)
+    return slots
+
+
+async def run_password_work(fn: Callable[_P, _R], *args: _P.args, **kwargs: _P.kwargs) -> _R:
+    """Run blocking password work (hash, verify, dummy verify) off the event loop, bounded."""
+    async with _slots_for_running_loop():
+        return await asyncio.to_thread(fn, *args, **kwargs)
+
+
 @dataclass(frozen=True)
 class PasswordVerificationResult:
     """Result of a password verification check."""
@@ -88,8 +125,11 @@ class PasswordService:
             type=Type.ID,
         )
 
-        # Pre-computed dummy hash using the exact active parameters for constant-work dummy verification
-        self._dummy_hash = self._hasher.hash("dummy-password-for-timing-mitigation")
+        self._hash_parameters = (
+            cfg.auth.argon2_time_cost,
+            cfg.auth.argon2_memory_cost_kib,
+            cfg.auth.argon2_parallelism,
+        )
 
     def validate_password_policy(self, plain_password: str) -> None:
         """Validate password against length constraints and the bounded common denylist.
@@ -148,9 +188,21 @@ class PasswordService:
         account enumeration via timing differences.
         """
         try:
-            self._hasher.verify(self._dummy_hash, "dummy-password-for-timing-mitigation")
+            self._hasher.verify(self._dummy_hash(), _DUMMY_PASSWORD)
         except Exception:
             pass
+
+    def _dummy_hash(self) -> str:
+        """Dummy hash with the exact active parameters, computed once per parameter set.
+
+        Services are built per request, so hashing in __init__ would cost a full Argon2 run on the
+        event loop for every login; computing it here runs inside the worker thread instead.
+        """
+        with _dummy_hashes_lock:
+            cached = _dummy_hashes.get(self._hash_parameters)
+            if cached is None:
+                cached = _dummy_hashes[self._hash_parameters] = self._hasher.hash(_DUMMY_PASSWORD)
+            return cached
 
     def needs_rehash(self, password_hash: str) -> bool:
         """Check if stored hash was created with parameters differing from current target."""

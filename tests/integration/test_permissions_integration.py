@@ -111,13 +111,16 @@ async def test_manager_membership_resolves_approved_permissions_in_db(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert resp.status_code == 201
-    member_id = resp.json()["id"]
 
-    # Activate manager in DB directly for permission resolution test
+    # The manager accepts; the membership is created active (SEC-P1 F5: invitations are separate)
+    accepted = await perm_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {mgr_token}"},
+    )
+    member_id = accepted.json()["id"]
     stmt = select(OrganizationMember).where(OrganizationMember.id == uuid.UUID(member_id))
     member = (await db_session.execute(stmt)).scalar_one()
-    member.status = MemberStatus.ACTIVE.value
-    await db_session.flush()
+    assert member.status == MemberStatus.ACTIVE.value
 
     perms = get_role_permissions(member.role)
     assert len(perms) == 28
@@ -149,7 +152,7 @@ async def test_staff_membership_resolves_least_privilege_in_db(
 ) -> None:
     """Staff membership resolves only least-privilege operations in DB."""
     _, owner_token = await _create_user(perm_client, "owner_stf")
-    staff_email, _ = await _create_user(perm_client, "staff_user")
+    staff_email, staff_token = await _create_user(perm_client, "staff_user")
     org_id = await _create_org(perm_client, owner_token, "Staff Perm Org")
 
     resp = await perm_client.post(
@@ -158,7 +161,11 @@ async def test_staff_membership_resolves_least_privilege_in_db(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert resp.status_code == 201
-    member_id = resp.json()["id"]
+    accepted = await perm_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {staff_token}"},
+    )
+    member_id = accepted.json()["id"]
 
     stmt = select(OrganizationMember).where(OrganizationMember.id == uuid.UUID(member_id))
     member = (await db_session.execute(stmt)).scalar_one()
@@ -195,6 +202,10 @@ async def test_multi_org_isolated_permissions(
         headers={"Authorization": f"Bearer {other_token}"},
     )
     assert invite_resp.status_code == 201
+    accepted_b = await perm_client.post(
+        f"/api/organizations/{org_b_id}/members/accept",
+        headers={"Authorization": f"Bearer {user_token}"},
+    )
 
     # Fetch User's membership in Org A
     stmt_a = select(OrganizationMember).where(
@@ -205,7 +216,7 @@ async def test_multi_org_isolated_permissions(
     perms_a = get_role_permissions(member_a.role)
 
     # Fetch User's membership in Org B
-    member_b_id = uuid.UUID(invite_resp.json()["id"])
+    member_b_id = uuid.UUID(accepted_b.json()["id"])
     stmt_b = select(OrganizationMember).where(
         OrganizationMember.id == member_b_id,
     )

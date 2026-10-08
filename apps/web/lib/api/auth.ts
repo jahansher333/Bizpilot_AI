@@ -11,7 +11,7 @@ import {
 
 import { authorizedFetch, getApiBaseUrl } from "@/lib/api/http";
 
-export { ACCESS_TOKEN_KEY, getStoredAccessToken } from "@/lib/api/http";
+export { getAccessToken } from "@/lib/api/http";
 
 import { ApiError } from "./errors";
 
@@ -52,11 +52,13 @@ async function request<T>(
 }
 
 export async function loginUser(payload: LoginInput): Promise<AuthTokens> {
+  // credentials: "include" lets the browser store the HttpOnly refresh cookie the API sets.
   return request<AuthTokens>(
     "/api/auth/login",
     {
       method: "POST",
       body: JSON.stringify(payload),
+      credentials: "include",
     },
     undefined,
     false
@@ -75,18 +77,15 @@ export async function registerUser(payload: RegisterInput): Promise<RegisterResp
   );
 }
 
-export async function logoutUser(
-  refreshToken: string,
-  token?: string
-): Promise<AuthMessageResponse> {
-  // The endpoint is authorized by the refresh token in the body, never by refreshing first.
+export async function logoutUser(): Promise<AuthMessageResponse> {
+  // Authorized by the HttpOnly refresh cookie, never by refreshing first; the API clears it.
   return request<AuthMessageResponse>(
     "/api/auth/logout",
     {
       method: "POST",
-      body: JSON.stringify({ refresh_token: refreshToken }),
+      credentials: "include",
     },
-    token,
+    undefined,
     false
   );
 }

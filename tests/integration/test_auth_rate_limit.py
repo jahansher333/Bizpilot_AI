@@ -210,6 +210,123 @@ async def test_login_blocked_per_ip_across_many_emails(limited_app: FastAPI) -> 
         assert ok.status_code == 200
 
 
+@pytest.fixture
+def account_limited_app(limited_settings: Settings, db_session: AsyncSession) -> FastAPI:
+    auth = limited_settings.auth.model_copy(
+        update={"login_max_failures": 1000, "login_account_max_failures": 4, "login_account_cooldown_minutes": 15}
+    )
+    app = create_app(limited_settings.model_copy(update={"auth": auth}))
+
+    async def _override_get_session() -> AsyncGenerator[AsyncSession, None]:
+        yield db_session
+
+    app.dependency_overrides[get_session] = _override_get_session
+    return app
+
+
+@pytest.mark.asyncio
+async def test_account_cooldown_applies_across_rotating_ips(account_limited_app: FastAPI) -> None:
+    """An attacker who changes IP (or spoofs X-Forwarded-For) on every guess still hits the account limit."""
+    async with _client(account_limited_app, ip="198.51.100.200") as client:
+        email = await _register(client)
+    for index in range(4):
+        async with _client(account_limited_app, ip=f"203.0.113.{100 + index}") as attacker:
+            resp = await attacker.post("/api/auth/login", json={"email": email, "password": "WrongPassword999!"})
+            assert resp.status_code == 401
+
+    async with _client(account_limited_app, ip="192.0.2.77") as fresh_ip:
+        blocked = await fresh_ip.post("/api/auth/login", json={"email": email, "password": PASSWORD})
+        assert blocked.status_code == 429
+        assert blocked.json()["error"]["message"] == "Too many attempts. Please wait a few minutes and try again."
+
+
+@pytest.mark.asyncio
+async def test_account_cooldown_is_non_enumerating(account_limited_app: FastAPI) -> None:
+    async with _client(account_limited_app, ip="198.51.100.201") as client:
+        existing = await _register(client)
+    missing = f"missing_{uuid.uuid4().hex[:8]}@example.com"
+    outcomes = {}
+    for email in (existing, missing):
+        for index in range(4):
+            async with _client(account_limited_app, ip=f"203.0.113.{110 + index}") as attacker:
+                await attacker.post("/api/auth/login", json={"email": email, "password": "WrongPassword999!"})
+        async with _client(account_limited_app, ip="192.0.2.78") as probe:
+            resp = await probe.post("/api/auth/login", json={"email": email, "password": "WrongPassword999!"})
+            outcomes[email] = (resp.status_code, resp.json())
+    assert outcomes[existing][0] == 429
+    assert outcomes[existing][1]["error"]["message"] == outcomes[missing][1]["error"]["message"]
+    assert outcomes[existing][0] == outcomes[missing][0]
+
+
+@pytest.mark.asyncio
+async def test_successful_login_clears_account_streak(account_limited_app: FastAPI) -> None:
+    async with _client(account_limited_app, ip="198.51.100.202") as client:
+        email = await _register(client)
+        for _ in range(3):
+            await client.post("/api/auth/login", json={"email": email, "password": "WrongPassword999!"})
+        assert (await client.post("/api/auth/login", json={"email": email, "password": PASSWORD})).status_code == 200
+        for _ in range(3):
+            resp = await client.post("/api/auth/login", json={"email": email, "password": "WrongPassword999!"})
+            assert resp.status_code == 401
+        assert (await client.post("/api/auth/login", json={"email": email, "password": PASSWORD})).status_code == 200
+
+
+def _account_limiter(settings: Settings, session: AsyncSession, now: dict[str, datetime]) -> AuthRateLimiter:
+    auth = settings.auth.model_copy(
+        update={"login_max_failures": 1000, "login_account_max_failures": 4, "login_account_cooldown_minutes": 15}
+    )
+    return AuthRateLimiter(session, settings.model_copy(update={"auth": auth}), clock=lambda: now["value"])
+
+
+@pytest.mark.asyncio
+async def test_account_cooldown_expires_and_is_not_permanent(
+    limited_settings: Settings, db_session: AsyncSession
+) -> None:
+    start = datetime(2026, 10, 8, 9, 0, tzinfo=timezone.utc)
+    now = {"value": start}
+    limiter = _account_limiter(limited_settings, db_session, now)
+    email = f"cooldown_{uuid.uuid4().hex[:8]}@example.com"
+
+    for index in range(4):
+        await limiter.record_login_failure(email, f"203.0.113.{120 + index}")
+    with pytest.raises(RateLimitException):
+        await limiter.ensure_login_allowed(email, "192.0.2.1")
+
+    # Attempts during the cooldown are rejected before they are counted, so they never extend it.
+    now["value"] = start + timedelta(minutes=10)
+    with pytest.raises(RateLimitException):
+        await limiter.ensure_login_allowed(email, "192.0.2.2")
+
+    now["value"] = start + timedelta(minutes=15, seconds=1)
+    await limiter.ensure_login_allowed(email, "192.0.2.3")
+
+    # The streak restarts: one more failure does not lock the account again.
+    await limiter.record_login_failure(email, "192.0.2.3")
+    await limiter.ensure_login_allowed(email, "192.0.2.4")
+    key = rate_limit_key_hash(RateLimitScope.LOGIN_ACCOUNT_FAILURE, email)
+    bucket = (
+        await db_session.execute(select(AuthRateLimitBucket).where(AuthRateLimitBucket.key_hash == key))
+    ).scalar_one()
+    assert bucket.attempt_count == 1
+
+
+@pytest.mark.asyncio
+async def test_account_streak_counts_failures_inside_the_cooldown_span(
+    limited_settings: Settings, db_session: AsyncSession
+) -> None:
+    """Failures spaced under the cooldown keep accumulating; the rate-limit window does not reset them."""
+    start = datetime(2026, 10, 8, 12, 0, tzinfo=timezone.utc)
+    now = {"value": start}
+    limiter = _account_limiter(limited_settings, db_session, now)
+    email = f"slow_{uuid.uuid4().hex[:8]}@example.com"
+
+    for index in range(4):
+        now["value"] = start + timedelta(minutes=14 * index)
+        await limiter.record_login_failure(email, f"203.0.113.{130 + index}")
+    with pytest.raises(RateLimitException):
+        await limiter.ensure_login_allowed(email, "192.0.2.5")
+
+
 @pytest.mark.asyncio
 async def test_expired_rate_limit_rows_are_pruned(limited_settings: Settings, db_session: AsyncSession) -> None:
     start = datetime(2026, 10, 1, 9, 0, tzinfo=timezone.utc)

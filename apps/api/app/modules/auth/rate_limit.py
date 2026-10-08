@@ -4,8 +4,12 @@ Policy (thresholds configurable via AuthenticationSettings):
 - login: failed attempts per (email, client IP); a successful login clears the counter.
 - login: failed attempts per client IP across all emails (stops one IP spraying many accounts);
   not cleared by a successful login.
+- login: consecutive failed attempts per account from any IP (stops attackers that rotate IPs or
+  spoof X-Forwarded-For). Reaching the threshold starts a temporary cooldown; the streak restarts
+  once a cooldown passes without failures, and a successful login clears it. No permanent lockout.
 - forgot-password: requests per email, across all client IPs (limits mail volume to one inbox).
 - reset-password: requests per client IP.
+- register and refresh: requests per client IP.
 
 Rejections are uniform 429 responses that never reveal whether an account exists.
 Subjects are stored only as SHA-256 digests. Rows whose window has elapsed are pruned on writes.
@@ -19,7 +23,7 @@ from datetime import datetime, timedelta, timezone
 from enum import StrEnum
 from typing import Optional
 
-from sqlalchemy import case, delete, select
+from sqlalchemy import ColumnElement, case, delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -33,8 +37,11 @@ RATE_LIMIT_MESSAGE = "Too many attempts. Please wait a few minutes and try again
 class RateLimitScope(StrEnum):
     LOGIN_FAILURE = "login_failure"
     LOGIN_IP_FAILURE = "login_ip_failure"
+    LOGIN_ACCOUNT_FAILURE = "login_account_failure"
     FORGOT_PASSWORD = "forgot_password"
     RESET_PASSWORD = "reset_password"
+    REGISTER = "register"
+    REFRESH = "refresh"
 
 
 def rate_limit_key_hash(scope: RateLimitScope, *parts: str) -> str:
@@ -61,7 +68,11 @@ class AuthRateLimiter:
         self._window = timedelta(minutes=cfg.auth.rate_limit_window_minutes)
         self._login_max_failures = cfg.auth.login_max_failures
         self._login_ip_max_failures = cfg.auth.login_ip_max_failures
+        self._login_account_max_failures = cfg.auth.login_account_max_failures
+        self._account_cooldown = timedelta(minutes=cfg.auth.login_account_cooldown_minutes)
         self._recovery_max_requests = cfg.auth.recovery_max_requests
+        self._register_max_requests = cfg.auth.register_max_requests
+        self._refresh_max_requests = cfg.auth.refresh_max_requests
         self._clock = clock
 
     # Login: count failures only
@@ -74,20 +85,51 @@ class AuthRateLimiter:
         ip_key = rate_limit_key_hash(RateLimitScope.LOGIN_IP_FAILURE, client_ip)
         if await self._current_count(RateLimitScope.LOGIN_IP_FAILURE, ip_key) >= self._login_ip_max_failures:
             raise RateLimitException(RATE_LIMIT_MESSAGE)
+        if await self._account_in_cooldown(email):
+            raise RateLimitException(RATE_LIMIT_MESSAGE)
 
     async def record_login_failure(self, email: str, client_ip: str) -> None:
         key = rate_limit_key_hash(RateLimitScope.LOGIN_FAILURE, email, client_ip)
         await self._hit(RateLimitScope.LOGIN_FAILURE, key)
         await self._hit(RateLimitScope.LOGIN_IP_FAILURE, rate_limit_key_hash(RateLimitScope.LOGIN_IP_FAILURE, client_ip))
+        await self._hit_account_failure(email)
 
     async def clear_login_failures(self, email: str, client_ip: str) -> None:
-        key = rate_limit_key_hash(RateLimitScope.LOGIN_FAILURE, email, client_ip)
-        await self._session.execute(
-            delete(AuthRateLimitBucket).where(
-                AuthRateLimitBucket.scope == RateLimitScope.LOGIN_FAILURE.value,
-                AuthRateLimitBucket.key_hash == key,
-            )
+        subjects = (
+            (RateLimitScope.LOGIN_FAILURE, rate_limit_key_hash(RateLimitScope.LOGIN_FAILURE, email, client_ip)),
+            (RateLimitScope.LOGIN_ACCOUNT_FAILURE, rate_limit_key_hash(RateLimitScope.LOGIN_ACCOUNT_FAILURE, email)),
         )
+        for scope, key in subjects:
+            await self._session.execute(
+                delete(AuthRateLimitBucket).where(
+                    AuthRateLimitBucket.scope == scope.value,
+                    AuthRateLimitBucket.key_hash == key,
+                )
+            )
+
+    async def _account_in_cooldown(self, email: str) -> bool:
+        key = rate_limit_key_hash(RateLimitScope.LOGIN_ACCOUNT_FAILURE, email)
+        row = (
+            await self._session.execute(
+                select(AuthRateLimitBucket.attempt_count, AuthRateLimitBucket.updated_at).where(
+                    AuthRateLimitBucket.scope == RateLimitScope.LOGIN_ACCOUNT_FAILURE.value,
+                    AuthRateLimitBucket.key_hash == key,
+                )
+            )
+        ).first()
+        # The cooldown runs from the failure that reached the threshold; attempts made during the
+        # cooldown are rejected before the password is checked, so they never extend it.
+        return (
+            row is not None
+            and row.attempt_count >= self._login_account_max_failures
+            and row.updated_at > self._clock() - self._account_cooldown
+        )
+
+    async def _hit_account_failure(self, email: str) -> int:
+        """Extend the account's failure streak; a streak idle for a full cooldown restarts at 1."""
+        key = rate_limit_key_hash(RateLimitScope.LOGIN_ACCOUNT_FAILURE, email)
+        streak_expired = AuthRateLimitBucket.updated_at <= self._clock() - self._account_cooldown
+        return await self._hit(RateLimitScope.LOGIN_ACCOUNT_FAILURE, key, restart_when=streak_expired)
 
     # Recovery: count every request
 
@@ -102,6 +144,18 @@ class AuthRateLimiter:
         key = rate_limit_key_hash(RateLimitScope.RESET_PASSWORD, client_ip)
         count = await self._hit(RateLimitScope.RESET_PASSWORD, key)
         return count <= self._recovery_max_requests
+
+    # Registration and session refresh: count every request per client IP
+
+    async def consume_register(self, client_ip: str) -> bool:
+        """Record a registration request; return False when the limit is exceeded."""
+        key = rate_limit_key_hash(RateLimitScope.REGISTER, client_ip)
+        return await self._hit(RateLimitScope.REGISTER, key) <= self._register_max_requests
+
+    async def consume_refresh(self, client_ip: str) -> bool:
+        """Record a refresh request; return False when the limit is exceeded."""
+        key = rate_limit_key_hash(RateLimitScope.REFRESH, client_ip)
+        return await self._hit(RateLimitScope.REFRESH, key) <= self._refresh_max_requests
 
     # Internals
 
@@ -119,16 +173,29 @@ class AuthRateLimiter:
         return row.attempt_count
 
     async def prune_expired(self) -> None:
-        """Delete counters whose window has elapsed; they would restart at 1 anyway."""
+        """Delete counters that would restart at 1 anyway (account streaks live for a cooldown)."""
+        now = self._clock()
+        account_scope = AuthRateLimitBucket.scope == RateLimitScope.LOGIN_ACCOUNT_FAILURE.value
         await self._session.execute(
-            delete(AuthRateLimitBucket).where(AuthRateLimitBucket.updated_at <= self._clock() - self._window)
+            delete(AuthRateLimitBucket).where(
+                ~account_scope, AuthRateLimitBucket.updated_at <= now - self._window
+            )
+        )
+        await self._session.execute(
+            delete(AuthRateLimitBucket).where(
+                account_scope, AuthRateLimitBucket.updated_at <= now - self._account_cooldown
+            )
         )
 
-    async def _hit(self, scope: RateLimitScope, key_hash: str) -> int:
+    async def _hit(
+        self, scope: RateLimitScope, key_hash: str, restart_when: Optional[ColumnElement[bool]] = None
+    ) -> int:
         """Atomically increment the counter, restarting it when the window has elapsed."""
         await self.prune_expired()
         now = self._clock()
-        window_expired = AuthRateLimitBucket.window_started_at <= now - self._window
+        window_expired = (
+            restart_when if restart_when is not None else AuthRateLimitBucket.window_started_at <= now - self._window
+        )
         stmt = (
             pg_insert(AuthRateLimitBucket)
             .values(

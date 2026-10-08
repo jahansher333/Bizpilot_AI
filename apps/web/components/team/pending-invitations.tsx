@@ -40,7 +40,7 @@ export function PendingInvitations() {
       <ul className="card stagger" style={{ overflow: "hidden", borderColor: "var(--brand-border)" }}>
         {invitations.map((invite, i) => (
           <li
-            key={invite.membership_id}
+            key={invite.invitation_id}
             style={{
               display: "flex",
               alignItems: "center",

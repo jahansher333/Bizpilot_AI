@@ -44,12 +44,24 @@ class AuthenticationSettings(BaseModel):
     jwt_audience: str = "bizpilot-web"
     previous_signing_secrets: list[SecretStr] = Field(default_factory=list)
     refresh_token_days: int = Field(default=30, ge=1)
+    # A just-rotated refresh token presented again within this many seconds, while its successor
+    # is still unused, is treated as a lost rotation response (the page was reloaded or left while
+    # the refresh was in flight) and rotated again instead of revoking the session. 0 disables.
+    refresh_reuse_grace_seconds: int = Field(default=20, ge=0, le=120)
     password_reset_token_minutes: int = Field(default=15, ge=1, le=1440)
     rate_limit_window_minutes: int = Field(default=15, ge=1, le=1440)
     login_max_failures: int = Field(default=5, ge=1, le=1000)
     # Failed logins from one client IP across all emails; generous so shared shop/office IPs still work.
     login_ip_max_failures: int = Field(default=50, ge=1, le=10000)
+    # Consecutive failed logins for one account, from any IP, before a temporary cooldown.
+    # The cooldown always expires on its own: there is no permanent lockout to abuse.
+    login_account_max_failures: int = Field(default=10, ge=1, le=1000)
+    login_account_cooldown_minutes: int = Field(default=15, ge=1, le=1440)
     recovery_max_requests: int = Field(default=5, ge=1, le=1000)
+    # Requests per client IP per rate-limit window. Registration runs Argon2, so it stays low;
+    # refresh is cheap but unauthenticated, and shops/offices share one IP, so it is generous.
+    register_max_requests: int = Field(default=10, ge=1, le=10000)
+    refresh_max_requests: int = Field(default=300, ge=1, le=100000)
 
     @model_validator(mode="after")
     def validate_secret(self) -> "AuthenticationSettings":
@@ -69,6 +81,8 @@ class AISettings(BaseModel):
     timeout_seconds: float = Field(default=30.0, ge=1.0, le=120.0)
     max_tool_calls: int = Field(default=5, ge=1, le=20)
     log_raw_prompts: bool = Field(default=False)
+    # Assistant requests per organization per local calendar day (organization timezone).
+    daily_requests_per_organization: int = Field(default=100, ge=1, le=100000)
 
     @model_validator(mode="after")
     def validate_enabled(self) -> "AISettings":
@@ -163,10 +177,15 @@ class Settings(BaseSettings):
                 "bizpilot_auth__jwt_issuer", "bizpilot_auth__jwt_audience",
                 "bizpilot_auth__previous_signing_secrets",
                 "bizpilot_auth__refresh_token_days",
+                "bizpilot_auth__refresh_reuse_grace_seconds",
                 "bizpilot_auth__rate_limit_window_minutes",
                 "bizpilot_auth__login_max_failures",
                 "bizpilot_auth__login_ip_max_failures",
+                "bizpilot_auth__login_account_max_failures",
+                "bizpilot_auth__login_account_cooldown_minutes",
                 "bizpilot_auth__recovery_max_requests",
+                "bizpilot_auth__register_max_requests", "bizpilot_auth__refresh_max_requests",
+                "bizpilot_ai__daily_requests_per_organization",
                 "bizpilot_ai__enabled", "bizpilot_ai__api_key", "bizpilot_ai__model",
                 "bizpilot_email__smtp_host", "bizpilot_email__smtp_port",
                 "bizpilot_email__smtp_username", "bizpilot_email__smtp_password",

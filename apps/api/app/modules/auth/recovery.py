@@ -19,7 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.config import EmailSettings, Settings, get_settings
 from app.core.errors import AuthenticationException, ValidationException
 from app.modules.auth.enums import UserStatus
-from app.modules.auth.password import PasswordService
+from app.modules.auth.password import PasswordService, run_password_work
 from app.modules.auth.repository import AuthRepository
 from app.modules.auth.schemas import (
     ForgotPasswordRequest,
@@ -224,7 +224,7 @@ class PasswordRecoveryService:
         # Strict non-enumeration: unknown, disabled, or pending accounts return uniform response
         if user is None or user.status != UserStatus.ACTIVE.value:
             # Timing mitigation: execute comparable cryptographic dummy work
-            self._password_service.verify_dummy()
+            await run_password_work(self._password_service.verify_dummy)
             return ForgotPasswordResponse()
 
         raw_token: Optional[str] = None
@@ -306,12 +306,14 @@ class PasswordRecoveryService:
                 self._password_service.validate_password_policy(new_password)
 
                 # Step 7: Founder Decision 4: New password must NOT equal current password
-                verify_res = self._password_service.verify_password(new_password, credential.password_hash)
+                verify_res = await run_password_work(
+                    self._password_service.verify_password, new_password, credential.password_hash
+                )
                 if verify_res.valid:
                     raise ValidationException("New password cannot be the same as your current password")
 
                 # Step 8: Hash new password using Argon2id
-                new_password_hash = self._password_service.hash_password(new_password)
+                new_password_hash = await run_password_work(self._password_service.hash_password, new_password)
 
                 # Step 9: Update credential password_hash and password_updated_at
                 await self._repository.update_password_hash(user.id, new_password_hash)

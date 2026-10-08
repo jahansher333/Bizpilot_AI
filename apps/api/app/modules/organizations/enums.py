@@ -25,3 +25,11 @@ class MemberStatus(str, Enum):
     ACTIVE = "active"
     REVOKED = "revoked"
     INVITED = "invited"
+
+
+class InvitationStatus(str, Enum):
+    """Lifecycle of an email-addressed organization invitation (SEC-P1 F5)."""
+
+    PENDING = "pending"
+    ACCEPTED = "accepted"
+    REVOKED = "revoked"

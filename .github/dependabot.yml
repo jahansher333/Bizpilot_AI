@@ -1,0 +1,31 @@
+# Automated dependency updates (SEC-P1 F2). The CI audit steps are the vulnerability gate;
+# Dependabot keeps versions moving so fixes are a merge away.
+version: 2
+updates:
+  - package-ecosystem: npm
+    directory: /apps/web
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      web-minor-and-patch:
+        update-types: [minor, patch]
+
+  # Dependabot reads the ranges in pyproject.toml; it cannot rewrite the hash-locked
+  # requirements*.lock files (uv pip compile output). When it bumps pyproject.toml, regenerate
+  # both locks with the command in apps/api/requirements.lock before merging.
+  - package-ecosystem: pip
+    directory: /apps/api
+    schedule:
+      interval: weekly
+    open-pull-requests-limit: 10
+
+  - package-ecosystem: docker
+    directories: [/apps/api, /apps/web]
+    schedule:
+      interval: weekly
+
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly

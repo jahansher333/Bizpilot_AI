@@ -149,13 +149,16 @@ async def test_role_downgrade_takes_immediate_effect_without_stale_token_window(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert inv_resp.status_code == 201
-    member_id = inv_resp.json()["id"]
 
-    # Activate member in DB
+    # The manager accepts; the membership is created active (SEC-P1 F5)
+    accepted = await sec_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {mgr_token}"},
+    )
+    member_id = accepted.json()["id"]
     stmt = select(OrganizationMember).where(OrganizationMember.id == uuid.UUID(member_id))
     member = (await db_session.execute(stmt)).scalar_one()
-    member.status = MemberStatus.ACTIVE.value
-    await db_session.flush()
+    assert member.status == MemberStatus.ACTIVE.value
 
     # Manager role permits ORDERS_CORRECT but denies ORDERS_VOID
     assert has_permission(member.role, Permission.ORDERS_CORRECT) is True

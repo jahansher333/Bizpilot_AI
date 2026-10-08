@@ -15,6 +15,7 @@ from app.db.session import get_session
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.models import RefreshToken, User
 from app.modules.auth.refresh import generate_refresh_token, hash_refresh_token
+from tests.helpers import refresh_cookie, refresh_cookie_header
 
 
 @pytest.fixture
@@ -55,7 +56,7 @@ async def test_logout_all_cross_user_isolation(
         json={"email": user_a_email, "password": password},
     )
     jwt_a = resp_a.json()["access_token"]
-    r_a = resp_a.json()["refresh_token"]
+    r_a = refresh_cookie(resp_a)
 
     # Create User B
     await auth_client.post(
@@ -66,7 +67,7 @@ async def test_logout_all_cross_user_isolation(
         "/api/auth/login",
         json={"email": user_b_email, "password": password},
     )
-    r_b = resp_b.json()["refresh_token"]
+    r_b = refresh_cookie(resp_b)
 
     # User A calls /logout-all
     logout_all_a = await auth_client.post(
@@ -76,13 +77,13 @@ async def test_logout_all_cross_user_isolation(
     assert logout_all_a.status_code == 200
 
     # User A is denied refresh
-    ref_a = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_a})
+    ref_a = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_a))
     assert ref_a.status_code == 401
 
     # CRITICAL: User B remains fully active and can refresh successfully
-    ref_b = await auth_client.post("/api/auth/refresh", json={"refresh_token": r_b})
+    ref_b = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r_b))
     assert ref_b.status_code == 200
-    assert ref_b.json()["refresh_token"]
+    assert refresh_cookie(ref_b)
 
 
 # 2. Strict Non-Enumeration on Unknown Token
@@ -92,7 +93,7 @@ async def test_logout_all_cross_user_isolation(
 async def test_logout_unknown_token_non_enumeration(auth_client: AsyncClient) -> None:
     """Verify unknown logout token returns generic 401 without leaking existence or system state."""
     unknown_token = generate_refresh_token()
-    resp = await auth_client.post("/api/auth/logout", json={"refresh_token": unknown_token})
+    resp = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(unknown_token))
 
     assert resp.status_code == 401
     err = resp.json()["error"]
@@ -119,9 +120,9 @@ async def test_logout_response_contains_no_sensitive_metadata(
         json={"email": email, "password": password, "display_name": "Leak Check"},
     )
     login_resp = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    raw_token = login_resp.json()["refresh_token"]
+    raw_token = refresh_cookie(login_resp)
 
-    logout_resp = await auth_client.post("/api/auth/logout", json={"refresh_token": raw_token})
+    logout_resp = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(raw_token))
     assert logout_resp.status_code == 200
     body = logout_resp.json()
 
@@ -139,28 +140,35 @@ async def test_logout_response_contains_no_sensitive_metadata(
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "bad_payload",
-    [
-        {},
-        {"refresh_token": ""},
-        {"refresh_token": "   "},
-        {"refresh_token": "short"},
-        {"refresh_token": "a" * 129},
-        {"refresh_token": generate_refresh_token(), "unexpected_extra": "injected"},
-        {"refresh_token": generate_refresh_token(), "user_id": str(uuid.uuid4())},
-        {"refresh_token": generate_refresh_token(), "token_family_id": str(uuid.uuid4())},
-        {"refresh_token": 12345},
-        {"refresh_token": None},
-    ],
+    "bad_cookie",
+    [None, "", "   ", "short", "a" * 129, generate_refresh_token()],
 )
 async def test_logout_input_boundary_defense(
     auth_client: AsyncClient,
-    bad_payload: dict,
+    bad_cookie: str | None,
 ) -> None:
-    """Verify strict Pydantic validation rejects malformed, out-of-bounds, or extra fields."""
-    resp = await auth_client.post("/api/auth/logout", json=bad_payload)
-    assert resp.status_code == 422
-    assert resp.json()["error"]["code"] == "VALIDATION_ERROR"
+    """A missing, malformed, out-of-bounds or unknown refresh cookie is a uniform 401 (SEC-P1 F3)."""
+    headers = refresh_cookie_header(bad_cookie) if bad_cookie is not None else {}
+    resp = await auth_client.post("/api/auth/logout", headers=headers)
+    assert resp.status_code == 401
+    assert resp.json()["error"] == {
+        "code": "AUTHENTICATION_REQUIRED",
+        "message": "Invalid or expired refresh token",
+        "details": None,
+        "correlation_id": resp.json()["error"]["correlation_id"],
+    }
+
+
+@pytest.mark.asyncio
+async def test_logout_input_ignores_body_tokens(
+    auth_client: AsyncClient,
+) -> None:
+    """The old JSON-body transport is gone: a token in the body is never read."""
+    email = f"body_{uuid.uuid4().hex[:8]}@example.com"
+    await auth_client.post("/api/auth/register", json={"email": email, "password": "ValidSecretPassword123!", "display_name": "Body"})
+    login = await auth_client.post("/api/auth/login", json={"email": email, "password": "ValidSecretPassword123!"})
+    resp = await auth_client.post("/api/auth/logout", json={"refresh_token": refresh_cookie(login)})
+    assert resp.status_code == 401
 
 
 # 5. Disabled User Revocation
@@ -180,7 +188,7 @@ async def test_disabled_user_can_revoke_session_via_logout(
         json={"email": email, "password": password, "display_name": "Dis User"},
     )
     login_resp = await auth_client.post("/api/auth/login", json={"email": email, "password": password})
-    r1 = login_resp.json()["refresh_token"]
+    r1 = refresh_cookie(login_resp)
 
     # Disable the user in DB
     stmt_user = select(User).where(User.email_normalized == email)
@@ -189,9 +197,9 @@ async def test_disabled_user_can_revoke_session_via_logout(
     await db_session.commit()
 
     # Logout is a revocation operation and succeeds
-    logout_resp = await auth_client.post("/api/auth/logout", json={"refresh_token": r1})
+    logout_resp = await auth_client.post("/api/auth/logout", headers=refresh_cookie_header(r1))
     assert logout_resp.status_code == 200
 
     # Refresh remains denied
-    ref_resp = await auth_client.post("/api/auth/refresh", json={"refresh_token": r1})
+    ref_resp = await auth_client.post("/api/auth/refresh", headers=refresh_cookie_header(r1))
     assert ref_resp.status_code == 401

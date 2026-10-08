@@ -7,11 +7,13 @@ server-verified RequestContext and RBAC permissions.
 from __future__ import annotations
 
 import uuid
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.errors import RateLimitException
 from app.db.session import get_session
 from app.modules.ai.assistant import BizPilotAssistantOrchestrator
+from app.modules.ai.quota import AI_DAILY_LIMIT_MESSAGE, AIDailyQuota
 from app.modules.ai.schemas import AssistantRequest, AssistantResponse
 from app.modules.organizations.context import RequestContext, require_permission
 from app.modules.organizations.permissions import Permission
@@ -38,10 +40,18 @@ _ORCHESTRATOR = BizPilotAssistantOrchestrator()
 async def chat_with_assistant(
     organization_id: uuid.UUID,
     request: AssistantRequest,
+    http_request: Request,
     context: RequestContext = Depends(require_permission(Permission.AI_QUERY_STAFF)),
     session: AsyncSession = Depends(get_session),
 ) -> AssistantResponse:
     """Chat with BizPilot AI Assistant within trusted organization scope."""
+    quota = AIDailyQuota(session, getattr(http_request.app.state, "settings", None))
+    allowed = await quota.consume(context.organization_id, context.organization.timezone)
+    # Commit the count first so it survives a failed or rolled-back assistant turn.
+    await session.commit()
+    if not allowed:
+        raise RateLimitException(AI_DAILY_LIMIT_MESSAGE)
+
     org_name = context.organization.display_name if context.organization else None
     return await _ORCHESTRATOR.run_turn(
         session=session,

@@ -106,7 +106,7 @@ export function NoticeCard({ icon, title, body }: { icon: IconName; title: strin
   );
 }
 
-export type FailureKind = "unavailable" | "timeout" | "offline";
+export type FailureKind = "unavailable" | "timeout" | "offline" | "limit";
 
 /** Request failures: calm, never blame the user, always a next step. */
 export function FailureNotice({ kind, onRetry, disabled }: { kind: FailureKind; onRetry: () => void; disabled?: boolean }) {
@@ -114,6 +114,7 @@ export function FailureNotice({ kind, onRetry, disabled }: { kind: FailureKind; 
     unavailable: { cls: "a-warning", icon: "alert" as IconName, title: "BizPilot AI is temporarily unavailable.", body: "Your core business operations are still working." },
     timeout: { cls: "a-neutral", icon: "info" as IconName, title: "That request took longer than expected.", body: "Nothing was changed." },
     offline: { cls: "a-neutral", icon: "info" as IconName, title: "Couldn’t reach BizPilot AI.", body: "Check your connection. Nothing was changed." },
+    limit: { cls: "a-neutral", icon: "info" as IconName, title: "Your business has used today’s BizPilot AI questions.", body: "They reset at midnight. Your core business operations are still working." },
   }[kind];
   return (
     <div className={`alert ${copy.cls} reveal`} role="alert">
@@ -123,12 +124,15 @@ export function FailureNotice({ kind, onRetry, disabled }: { kind: FailureKind; 
           <div className="a-t">{copy.title}</div>
           {copy.body}
         </div>
-        <div>
-          <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry} disabled={disabled}>
-            <Icon name="refresh" size="sm" />
-            Retry
-          </button>
-        </div>
+        {/* Retrying cannot help once the daily allowance is used up. */}
+        {kind !== "limit" && (
+          <div>
+            <button type="button" className="btn btn-secondary btn-sm" onClick={onRetry} disabled={disabled}>
+              <Icon name="refresh" size="sm" />
+              Retry
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -137,6 +141,7 @@ export function FailureNotice({ kind, onRetry, disabled }: { kind: FailureKind; 
 export function failureKind(err: unknown): FailureKind {
   const status = (err as { status?: number } | null)?.status;
   if (status === 504 || status === 408) return "timeout";
+  if (status === 429) return "limit";
   if (typeof status === "number") return "unavailable";
   return "offline";
 }
