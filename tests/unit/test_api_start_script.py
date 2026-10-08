@@ -47,7 +47,14 @@ def test_start_script_uses_lf_line_endings() -> None:
     assert b"\r\n" not in START_SCRIPT.read_bytes()
 
 
-def test_api_image_has_no_wildcard_proxy_default() -> None:
+def test_api_image_trusts_only_the_private_ingress_range_by_default() -> None:
     dockerfile = (REPO_ROOT / "apps" / "api" / "Dockerfile").read_text()
     assert 'FORWARDED_ALLOW_IPS="*"' not in dockerfile
+    assert "FORWARDED_ALLOW_IPS=10.0.0.0/8" in dockerfile
     assert 'CMD ["/app/start.sh"]' in dockerfile
+
+
+def test_start_accepts_the_image_default(tmp_path: Path) -> None:
+    result = _run(tmp_path, "10.0.0.0/8")
+    assert result.returncode == 0, result.stderr
+    assert "--forwarded-allow-ips 10.0.0.0/8" in result.stdout

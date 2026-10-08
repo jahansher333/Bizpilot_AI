@@ -28,13 +28,15 @@ COPY --chown=bizpilot:bizpilot alembic alembic
 COPY --chown=bizpilot:bizpilot apps/api/app apps/api/app
 COPY --chown=bizpilot:bizpilot --chmod=0755 apps/api/start.sh start.sh
 
-# FORWARDED_ALLOW_IPS has no default: set it at deploy time to the ingress proxy address or CIDR so
-# rate limits see the real client IP. start.sh refuses to start without it or with "*", because
-# trusting every proxy lets any client choose its own IP through X-Forwarded-For.
+# FORWARDED_ALLOW_IPS: proxies trusted to set X-Forwarded-For, so rate limits see the real client IP.
+# Defaults to Azure's private 10.0.0.0/8 range (founder decision 2026-10-09); override at runtime with
+# the exact ingress subnet when it is known. start.sh refuses "*" or an empty value, because trusting
+# every proxy lets any client choose its own IP through X-Forwarded-For.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     BIZPILOT_ENVIRONMENT=production \
-    BIZPILOT_DEBUG=false
+    BIZPILOT_DEBUG=false \
+    FORWARDED_ALLOW_IPS=10.0.0.0/8
 
 USER bizpilot
 EXPOSE 8000

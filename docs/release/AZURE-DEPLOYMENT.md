@@ -19,6 +19,21 @@ The browser calls the API directly at its own https origin (`NEXT_PUBLIC_API_URL
 Next.js `/api` proxy. Going through the proxy would make every request reach the API from the web
 container's address, and the per-IP rate limits would then count all users as one client.
 
+### Production domains
+
+Decided 2026-10-09: web at `https://app.bizpilot.ai`, API at `https://api.bizpilot.ai`.
+
+| Setting | Value |
+| --- | --- |
+| Web build arg `NEXT_PUBLIC_API_URL` | `https://api.bizpilot.ai` |
+| `BIZPILOT_CORS_ORIGINS` | `["https://app.bizpilot.ai"]` |
+| `BIZPILOT_EMAIL__FRONTEND_BASE_URL` | `https://app.bizpilot.ai` |
+
+The refresh cookie is deliberately **host-only** on `api.bizpilot.ai` (no `Domain` attribute).
+`app.bizpilot.ai` and `api.bizpilot.ai` are the same site, so `SameSite=Strict` already lets the
+browser send it with the app's API calls; `Domain=.bizpilot.ai` would add nothing for the app but
+would also send the 30-day refresh token to every other `*.bizpilot.ai` host.
+
 ### Session cookie: web and API must be on the same site
 
 Since SEC-P1 F3 the refresh token is an `HttpOnly; Secure; SameSite=Strict` cookie set by the API
@@ -60,7 +75,7 @@ mode, non-TLS database connections, `*`/http CORS origins and non-TLS SMTP.
 | `BIZPILOT_EMAIL__FRONTEND_BASE_URL` | `https://<web-domain>` |
 | `BIZPILOT_AI__ENABLED` / `_API_KEY` / `_MODEL` | keep `false` until the AI provider's data terms are reviewed |
 | `BIZPILOT_LOGGING__JSON_LOGS` | `true` |
-| `FORWARDED_ALLOW_IPS` | **Required, no default.** The address range the Container Apps ingress connects from (the environment's infrastructure subnet CIDR), comma-separated if several. The image refuses to start without it or with `*`: trusting every proxy makes uvicorn take the client-written left-most `X-Forwarded-For` entry, which defeats every per-IP rate limit. |
+| `FORWARDED_ALLOW_IPS` | Image default `10.0.0.0/8` (Azure private range, founder decision 2026-10-09). Override with the exact ingress subnet once known (the Container Apps environment's infrastructure subnet, comma-separated if several). If that subnet is outside `10.0.0.0/8` (e.g. `172.16.0.0/12`), the override is **required**, or every client is counted as the ingress IP. The image refuses to start with `*` or an empty value: trusting every proxy makes uvicorn take the client-written left-most `X-Forwarded-For` entry, which defeats every per-IP rate limit. |
 | `BIZPILOT_AUTH__LOGIN_ACCOUNT_MAX_FAILURES` / `_COOLDOWN_MINUTES` | defaults `10` / `15`: consecutive failed logins per account (any IP) before a temporary cooldown |
 
 ## Probes
