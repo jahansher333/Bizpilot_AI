@@ -18,7 +18,7 @@ from app.modules.organizations.enums import (
     MemberStatus,
     OrganizationStatus,
 )
-from app.modules.organizations.models import Organization, OrganizationMember
+from app.modules.organizations.models import Organization, OrganizationInvitation, OrganizationMember
 
 
 @pytest.fixture
@@ -67,12 +67,30 @@ async def _create_org(client: AsyncClient, token: str, name: str = "Test Org") -
     return resp.json()["id"]
 
 
+async def _invite_and_accept(
+    client: AsyncClient, org_id: str, owner_token: str, email: str, invitee_token: str, role: str = "staff"
+) -> str:
+    """Invite an email and accept as its owner; returns the membership ID."""
+    invited = await client.post(
+        f"/api/organizations/{org_id}/members",
+        json={"email": email, "role": role},
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert invited.status_code == 201
+    accepted = await client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert accepted.status_code == 200
+    return accepted.json()["id"]
+
+
 @pytest.mark.asyncio
 async def test_owner_can_invite_registered_user(
     member_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Verify Owner can invite a registered user as Staff."""
+    """Owner invites an email: a pending invitation is created, not a membership (SEC-P1 F5)."""
     _, owner_token = await _create_user(member_client, "owner")
     invitee_email, _ = await _create_user(member_client, "invitee")
     org_id = await _create_org(member_client, owner_token, "Invite Org")
@@ -85,22 +103,27 @@ async def test_owner_can_invite_registered_user(
     assert resp.status_code == 201
     data = resp.json()
     assert data["role"] == "staff"
-    assert data["status"] == "invited"
+    assert data["status"] == "pending"
     assert data["email"] == invitee_email
+    assert "user_id" not in data and "display_name" not in data
 
-    # Verify in DB
-    member_id = uuid.UUID(data["id"])
-    stmt = select(OrganizationMember).where(OrganizationMember.id == member_id)
-    member = (await db_session.execute(stmt)).scalar_one()
-    assert member.role == MemberRole.STAFF.value
-    assert member.status == MemberStatus.INVITED.value
+    # Verify in DB: an invitation row, and no membership until the invitee accepts.
+    invitation = (
+        await db_session.execute(select(OrganizationInvitation).where(OrganizationInvitation.id == uuid.UUID(data["id"])))
+    ).scalar_one()
+    assert invitation.role == MemberRole.STAFF.value
+    assert invitation.email_normalized == invitee_email
+    members = (
+        await db_session.execute(select(OrganizationMember).where(OrganizationMember.organization_id == uuid.UUID(org_id)))
+    ).scalars().all()
+    assert len(members) == 1  # the owner only
 
 
 @pytest.mark.asyncio
-async def test_invite_unregistered_email_returns_404(
+async def test_invite_unregistered_email_creates_pending_invitation(
     member_client: AsyncClient,
 ) -> None:
-    """Verify inviting unregistered email returns 404 with helpful guidance."""
+    """Inviting an email with no account succeeds like any other invite (SEC-P1 F5)."""
     _, owner_token = await _create_user(member_client, "owner")
     org_id = await _create_org(member_client, owner_token, "No User Org")
 
@@ -109,17 +132,16 @@ async def test_invite_unregistered_email_returns_404(
         json={"email": "nobody_registered@example.com", "role": "staff"},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
-    assert resp.status_code == 404
-    message = resp.json()["error"]["message"]
-    assert "register first" in message
-    assert "nobody_registered@example.com" not in message
+    assert resp.status_code == 201
+    assert resp.json()["status"] == "pending"
+    assert resp.json()["email"] == "nobody_registered@example.com"
 
 
 @pytest.mark.asyncio
-async def test_invite_duplicate_user_returns_409(
+async def test_reinvite_updates_the_open_invitation(
     member_client: AsyncClient,
 ) -> None:
-    """Verify inviting a user who already has an invite returns 409 Conflict."""
+    """Re-inviting an email with a pending invitation updates its role (SEC-P1 F5)."""
     _, owner_token = await _create_user(member_client, "owner")
     invitee_email, _ = await _create_user(member_client, "invitee")
     org_id = await _create_org(member_client, owner_token, "Dupe Org")
@@ -138,8 +160,9 @@ async def test_invite_duplicate_user_returns_409(
         json={"email": invitee_email, "role": "manager"},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
-    assert r2.status_code == 409
-    assert "already has a pending invitation" in r2.json()["error"]["message"]
+    assert r2.status_code == 201
+    assert r2.json()["id"] == r1.json()["id"]
+    assert r2.json()["role"] == "manager"
 
 
 @pytest.mark.asyncio
@@ -197,10 +220,13 @@ async def test_owner_can_list_members(
     )
     assert list_resp.status_code == 200
     members = list_resp.json()
-    assert len(members) == 2
-    roles = {m["role"] for m in members}
-    assert "owner" in roles
-    assert "manager" in roles
+    assert [m["role"] for m in members] == ["owner"]
+
+    invitations = await member_client.get(
+        f"/api/organizations/{org_id}/invitations",
+        headers={"Authorization": f"Bearer {owner_token}"},
+    )
+    assert [(i["email"], i["role"]) for i in invitations.json()] == [(invitee_email, "manager")]
 
 
 @pytest.mark.asyncio
@@ -210,15 +236,9 @@ async def test_owner_can_update_member_role(
 ) -> None:
     """Verify Owner can change member role from staff to manager."""
     _, owner_token = await _create_user(member_client, "owner")
-    invitee_email, _ = await _create_user(member_client, "invitee")
+    invitee_email, invitee_token = await _create_user(member_client, "invitee")
     org_id = await _create_org(member_client, owner_token, "Role Org")
-
-    inv_resp = await member_client.post(
-        f"/api/organizations/{org_id}/members",
-        json={"email": invitee_email, "role": "staff"},
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    member_id = inv_resp.json()["id"]
+    member_id = await _invite_and_accept(member_client, org_id, owner_token, invitee_email, invitee_token)
 
     patch_resp = await member_client.patch(
         f"/api/organizations/{org_id}/members/{member_id}",
@@ -304,15 +324,9 @@ async def test_owner_can_revoke_member(
 ) -> None:
     """Verify Owner can revoke a member's access."""
     _, owner_token = await _create_user(member_client, "owner")
-    invitee_email, _ = await _create_user(member_client, "invitee")
+    invitee_email, invitee_token = await _create_user(member_client, "invitee")
     org_id = await _create_org(member_client, owner_token, "Revoke Org")
-
-    inv_resp = await member_client.post(
-        f"/api/organizations/{org_id}/members",
-        json={"email": invitee_email, "role": "staff"},
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    member_id = inv_resp.json()["id"]
+    member_id = await _invite_and_accept(member_client, org_id, owner_token, invitee_email, invitee_token)
 
     del_resp = await member_client.delete(
         f"/api/organizations/{org_id}/members/{member_id}",
@@ -356,18 +370,13 @@ async def test_reinviting_revoked_member_succeeds(
     member_client: AsyncClient,
     db_session: AsyncSession,
 ) -> None:
-    """Verify that reinviting a previously revoked user updates status back to invited."""
+    """A removed member can be invited again; accepting restores the same membership."""
     _, owner_token = await _create_user(member_client, "owner")
-    invitee_email, _ = await _create_user(member_client, "invitee")
+    invitee_email, invitee_token = await _create_user(member_client, "invitee")
     org_id = await _create_org(member_client, owner_token, "Reinvite Org")
 
-    # Invite and revoke
-    inv = await member_client.post(
-        f"/api/organizations/{org_id}/members",
-        json={"email": invitee_email, "role": "staff"},
-        headers={"Authorization": f"Bearer {owner_token}"},
-    )
-    member_id = inv.json()["id"]
+    # Join, then get removed
+    member_id = await _invite_and_accept(member_client, org_id, owner_token, invitee_email, invitee_token)
 
     await member_client.delete(
         f"/api/organizations/{org_id}/members/{member_id}",
@@ -381,9 +390,17 @@ async def test_reinviting_revoked_member_succeeds(
         headers={"Authorization": f"Bearer {owner_token}"},
     )
     assert reinv_resp.status_code == 201
-    assert reinv_resp.json()["status"] == "invited"
+    assert reinv_resp.json()["status"] == "pending"
     assert reinv_resp.json()["role"] == "manager"
-    assert reinv_resp.json()["revoked_at"] is None
+
+    rejoined = await member_client.post(
+        f"/api/organizations/{org_id}/members/accept",
+        headers={"Authorization": f"Bearer {invitee_token}"},
+    )
+    assert rejoined.json()["id"] == member_id
+    assert rejoined.json()["status"] == "active"
+    assert rejoined.json()["role"] == "manager"
+    assert rejoined.json()["revoked_at"] is None
 
 
 @pytest.mark.asyncio
@@ -477,11 +494,12 @@ async def test_membership_changes_are_recorded_in_internal_trace(
         json={"email": invitee_email, "role": "staff"},
         headers=owner_headers,
     )
-    member_id = invited.json()["id"]
-    await member_client.post(
+    invitation_id = invited.json()["id"]
+    accepted = await member_client.post(
         f"/api/organizations/{org_id}/members/accept",
         headers={"Authorization": f"Bearer {invitee_token}"},
     )
+    member_id = accepted.json()["id"]
     await member_client.patch(
         f"/api/organizations/{org_id}/members/{member_id}",
         json={"role": "manager"},
@@ -494,7 +512,7 @@ async def test_membership_changes_are_recorded_in_internal_trace(
             select(InternalTraceEvent)
             .where(
                 InternalTraceEvent.organization_id == uuid.UUID(org_id),
-                InternalTraceEvent.target_id == uuid.UUID(member_id),
+                InternalTraceEvent.target_id.in_([uuid.UUID(invitation_id), uuid.UUID(member_id)]),
             )
             .order_by(InternalTraceEvent.created_at.asc())
         )
@@ -506,6 +524,8 @@ async def test_membership_changes_are_recorded_in_internal_trace(
         "org.member.role_changed",
         "org.member.revoked",
     ]
+    assert events[0].target_type == "organization_invitation"
+    assert {e.target_type for e in events[1:]} == {"organization_member"}
     role_change = events[2]
     assert role_change.event_metadata["previous_role"] == "staff"
     assert role_change.event_metadata["role"] == "manager"

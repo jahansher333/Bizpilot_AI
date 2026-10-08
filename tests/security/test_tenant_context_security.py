@@ -188,11 +188,11 @@ async def test_revoked_membership_returns_404(
         json={"email": staff_email, "role": "staff"},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
-    member_id = inv_resp.json()["id"]
-    await sec_client.post(
+    accepted = await sec_client.post(
         f"/api/organizations/{org_id}/members/accept",
         headers={"Authorization": f"Bearer {staff_token}"},
     )
+    member_id = accepted.json()["id"]  # the membership; the invite ID is the invitation's (SEC-P1 F5)
 
     # Verify context resolves while active
     r_active = await sec_client.get(
@@ -391,11 +391,11 @@ async def test_role_downgrade_takes_immediate_effect(
         json={"email": user_email, "role": "manager"},
         headers={"Authorization": f"Bearer {owner_token}"},
     )
-    member_id = inv_resp.json()["id"]
-    await sec_client.post(
+    accepted = await sec_client.post(
         f"/api/organizations/{org_id}/members/accept",
         headers={"Authorization": f"Bearer {user_token}"},
     )
+    member_id = accepted.json()["id"]  # the membership; the invite ID is the invitation's (SEC-P1 F5)
 
     # Manager can access manager operation -> 200
     r1 = await sec_client.get(

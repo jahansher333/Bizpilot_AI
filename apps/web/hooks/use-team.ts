@@ -4,8 +4,10 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   acceptInvitation,
   inviteMember,
+  listInvitations,
   listMembers,
   listMyInvitations,
+  revokeInvitation,
   revokeMember,
   updateMemberRole,
 } from "@/lib/api/organizations";
@@ -13,6 +15,7 @@ import { InviteMemberInput, MemberRole } from "@/lib/schemas/organizations";
 
 export const teamQueryKeys = {
   members: (orgId: string) => ["team", orgId, "members"] as const,
+  invitations: (orgId: string) => ["team", orgId, "invitations"] as const,
   myInvitations: () => ["team", "my-invitations"] as const,
 };
 
@@ -29,7 +32,26 @@ export function useInviteMember(orgId: string, token?: string) {
   return useMutation({
     mutationFn: (payload: InviteMemberInput) => inviteMember(orgId, payload, token),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: teamQueryKeys.members(orgId) });
+      queryClient.invalidateQueries({ queryKey: teamQueryKeys.invitations(orgId) });
+    },
+  });
+}
+
+/** Pending invitations, addressed to emails (SEC-P1 F5). Owner-only on the backend. */
+export function useTeamInvitations(orgId: string, enabled = true, token?: string) {
+  return useQuery({
+    queryKey: teamQueryKeys.invitations(orgId),
+    queryFn: () => listInvitations(orgId, token),
+    enabled: !!orgId && enabled,
+  });
+}
+
+export function useRevokeInvitation(orgId: string, token?: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (invitationId: string) => revokeInvitation(orgId, invitationId, token),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: teamQueryKeys.invitations(orgId) });
     },
   });
 }

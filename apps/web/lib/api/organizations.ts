@@ -1,5 +1,6 @@
 import {
   CreateOrganizationInput,
+  Invitation,
   InviteMemberInput,
   MemberRole,
   Organization,
@@ -87,8 +88,8 @@ export async function inviteMember(
   orgId: string,
   payload: InviteMemberInput,
   token?: string
-): Promise<OrganizationMember> {
-  return request<OrganizationMember>(
+): Promise<Invitation> {
+  return request<Invitation>(
     `/api/organizations/${orgId}/members`,
     {
       method: "POST",
@@ -121,6 +122,22 @@ export async function revokeMember(
 ): Promise<OrganizationMember> {
   return request<OrganizationMember>(
     `/api/organizations/${orgId}/members/${memberId}`,
+    { method: "DELETE" },
+    token
+  );
+}
+
+export async function listInvitations(orgId: string, token?: string): Promise<Invitation[]> {
+  return request<Invitation[]>(`/api/organizations/${orgId}/invitations`, { method: "GET" }, token);
+}
+
+export async function revokeInvitation(
+  orgId: string,
+  invitationId: string,
+  token?: string
+): Promise<Invitation> {
+  return request<Invitation>(
+    `/api/organizations/${orgId}/invitations/${invitationId}`,
     { method: "DELETE" },
     token
   );

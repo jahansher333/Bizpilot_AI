@@ -17,15 +17,17 @@ from app.core.errors import (
 from app.modules.auth.enums import UserStatus
 from app.modules.auth.tokens import AuthenticatedUser
 from app.modules.organizations.enums import (
+    InvitationStatus,
     MemberRole,
     MemberStatus,
     OrganizationStatus,
 )
-from app.modules.organizations.models import OrganizationMember
+from app.modules.organizations.models import INVITATION_TTL, OrganizationInvitation, OrganizationMember
 from app.modules.organizations.permissions import Permission, check_permission
 from app.modules.organizations.repository import OrganizationRepository
 from app.modules.organizations.schemas import (
     CreateOrganizationRequest,
+    InvitationResponse,
     InviteMemberRequest,
     OrganizationMemberResponse,
     OrganizationResponse,
@@ -195,65 +197,115 @@ class OrganizationService:
             for member, user in rows
         ]
 
+    @staticmethod
+    def _invitation_response(invitation: OrganizationInvitation) -> InvitationResponse:
+        return InvitationResponse(
+            id=str(invitation.id),
+            organization_id=str(invitation.organization_id),
+            email=invitation.email_normalized,
+            role=invitation.role,
+            status=invitation.status,
+            invited_by_user_id=str(invitation.invited_by_user_id) if invitation.invited_by_user_id else None,
+            created_at=invitation.created_at,
+            updated_at=invitation.updated_at,
+            expires_at=invitation.expires_at,
+        )
+
+    async def _trace_invitation(
+        self,
+        action: TraceAction,
+        invitation: OrganizationInvitation,
+        actor_user_id: uuid.UUID,
+        metadata: dict[str, str],
+    ) -> None:
+        """FR-003: record invitation changes in internal traceability (no emails stored)."""
+        await InternalTraceService(self._session, invitation.organization_id).record_event(
+            action=action,
+            outcome=TraceOutcome.SUCCESS,
+            actor_user_id=actor_user_id,
+            target_type="organization_invitation",
+            target_id=invitation.id,
+            metadata=metadata,
+        )
+
     async def invite_member(
         self,
         organization_id: uuid.UUID,
         current_user: AuthenticatedUser,
         request: InviteMemberRequest,
-    ) -> OrganizationMemberResponse:
-        """Invite a registered user to join the organization."""
+    ) -> InvitationResponse:
+        """Invite any well-formed email address (SEC-P1 F5).
+
+        The response never depends on whether the email has a BizPilot account, so the invite
+        form cannot be used to enumerate accounts. Re-inviting an email that already has a
+        pending invitation updates its role, renews its 7-day expiry and returns it.
+        """
         await self._verify_active_owner(organization_id, current_user)
+        email_normalized = str(request.email).strip().lower()
 
-        target_user = await self._repository.get_user_by_email(request.email)
-        if target_user is None or target_user.status != UserStatus.ACTIVE.value:
-            # One message for missing and inactive accounts; never echo the email or account state.
-            raise NotFoundException(
-                "No active BizPilot account was found for this email. "
-                "Ask them to register first, then send the invitation again."
-            )
+        # Membership of this organization is already visible to its owners in the members list,
+        # so saying so reveals nothing about the wider account base.
+        if await self._repository.get_active_member_by_email(organization_id, email_normalized):
+            raise ConflictException("This person is already a member of this workspace")
 
-        existing_member = await self._repository.get_member(organization_id, target_user.id)
-        if existing_member is not None:
-            if existing_member.status == MemberStatus.ACTIVE.value:
-                raise ConflictException("User is already an active member of this organization")
-            elif existing_member.status == MemberStatus.INVITED.value:
-                raise ConflictException("User already has a pending invitation to this organization")
-            elif existing_member.status == MemberStatus.REVOKED.value:
-                existing_member.status = MemberStatus.INVITED.value
-                existing_member.role = request.role.value
-                existing_member.invited_by_user_id = current_user.id
-                existing_member.revoked_at = None
-                existing_member.updated_at = datetime.now(timezone.utc)
-                await self._session.flush()
-                member = existing_member
-            else:
-                member = existing_member
-        else:
-            member = await self._repository.create_member(
+        invitation = await self._repository.get_pending_invitation_for_email(
+            organization_id, email_normalized, for_update=True
+        )
+        now = datetime.now(timezone.utc)
+        if invitation is None:
+            invitation = await self._repository.create_invitation(
                 organization_id=organization_id,
-                user_id=target_user.id,
+                email_normalized=email_normalized,
                 role=request.role.value,
-                status=MemberStatus.INVITED.value,
                 invited_by_user_id=current_user.id,
+                expires_at=now + INVITATION_TTL,
             )
+        else:
+            # Also revives an expired invitation: it is still the one open row for this email.
+            invitation.role = request.role.value
+            invitation.invited_by_user_id = current_user.id
+            invitation.updated_at = now
+            invitation.expires_at = now + INVITATION_TTL
+            await self._session.flush()
 
-        await self._trace_membership(
-            TraceAction.ORG_MEMBER_INVITED, member, current_user.id, {"role": member.role}
+        await self._trace_invitation(
+            TraceAction.ORG_MEMBER_INVITED, invitation, current_user.id, {"role": invitation.role}
         )
+        return self._invitation_response(invitation)
 
-        return OrganizationMemberResponse(
-            id=str(member.id),
-            organization_id=str(member.organization_id),
-            user_id=str(member.user_id),
-            role=member.role,
-            status=member.status,
-            invited_by_user_id=str(member.invited_by_user_id) if member.invited_by_user_id else None,
-            created_at=member.created_at,
-            updated_at=member.updated_at,
-            revoked_at=member.revoked_at,
-            email=target_user.email_normalized,
-            display_name=target_user.display_name,
+    async def list_invitations(
+        self,
+        organization_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> list[InvitationResponse]:
+        """List the organization's pending invitations, restricted to active Owners."""
+        await self._verify_active_owner(organization_id, current_user)
+        rows = await self._repository.list_pending_invitations(organization_id, datetime.now(timezone.utc))
+        return [self._invitation_response(invitation) for invitation in rows]
+
+    async def revoke_invitation(
+        self,
+        organization_id: uuid.UUID,
+        invitation_id: uuid.UUID,
+        current_user: AuthenticatedUser,
+    ) -> InvitationResponse:
+        """Cancel a pending invitation, restricted to active Owners."""
+        await self._verify_active_owner(organization_id, current_user)
+        invitation = await self._repository.get_invitation(organization_id, invitation_id)
+        if invitation is None:
+            raise NotFoundException("Invitation not found in organization")
+        if invitation.status != InvitationStatus.PENDING.value:
+            raise ConflictException("Only pending invitations can be revoked")
+
+        now = datetime.now(timezone.utc)
+        invitation.status = InvitationStatus.REVOKED.value
+        invitation.revoked_at = now
+        invitation.updated_at = now
+        await self._session.flush()
+        await self._trace_invitation(
+            TraceAction.ORG_MEMBER_REVOKED, invitation, current_user.id, {"role": invitation.role}
         )
+        return self._invitation_response(invitation)
 
     async def update_member_role(
         self,
@@ -356,20 +408,22 @@ class OrganizationService:
         self,
         current_user: AuthenticatedUser,
     ) -> list[PendingInvitationResponse]:
-        """List pending invitations addressed to the caller (FIX-006)."""
+        """List pending invitations addressed to the caller's email (FIX-006, SEC-P1 F5)."""
         if current_user.status != UserStatus.ACTIVE.value:
             raise AuthenticationException("User account is inactive or disabled")
 
-        rows = await self._repository.list_pending_invitations_for_user(current_user.id)
+        rows = await self._repository.list_pending_invitations_for_email(
+            current_user.email_normalized, datetime.now(timezone.utc)
+        )
         return [
             PendingInvitationResponse(
-                membership_id=str(member.id),
+                invitation_id=str(invitation.id),
                 organization_id=str(org.id),
                 organization_display_name=org.display_name,
-                role=member.role,
-                invited_at=member.updated_at,
+                role=invitation.role,
+                invited_at=invitation.updated_at,
             )
-            for member, org in rows
+            for invitation, org in rows
         ]
 
     async def accept_invitation(
@@ -377,17 +431,44 @@ class OrganizationService:
         organization_id: uuid.UUID,
         current_user: AuthenticatedUser,
     ) -> OrganizationMemberResponse:
-        """Accept a pending invitation to an organization."""
+        """Accept the pending invitation addressed to the caller's email."""
         if current_user.status != UserStatus.ACTIVE.value:
             raise AuthenticationException("User account is inactive or disabled")
 
-        row = await self._repository.get_pending_invitation(organization_id, current_user.id)
-        if row is None:
+        invitation = await self._repository.get_pending_invitation_for_email(
+            organization_id, current_user.email_normalized, for_update=True
+        )
+        organization = await self._repository.get_organization_by_id(organization_id)
+        now = datetime.now(timezone.utc)
+        if (
+            invitation is None
+            or invitation.expires_at <= now
+            or organization is None
+            or organization.status != OrganizationStatus.ACTIVE.value
+        ):
             raise NotFoundException("No pending invitation found for this organization")
 
-        member, user = row
-        member.status = MemberStatus.ACTIVE.value
-        member.updated_at = datetime.now(timezone.utc)
+        member = await self._repository.get_member(organization_id, current_user.id)
+        if member is None:
+            member = await self._repository.create_member(
+                organization_id=organization_id,
+                user_id=current_user.id,
+                role=invitation.role,
+                status=MemberStatus.ACTIVE.value,
+                invited_by_user_id=invitation.invited_by_user_id,
+            )
+        elif member.status != MemberStatus.ACTIVE.value:
+            # A previously removed member rejoins with the role this invitation offers.
+            member.status = MemberStatus.ACTIVE.value
+            member.role = invitation.role
+            member.invited_by_user_id = invitation.invited_by_user_id
+            member.revoked_at = None
+            member.updated_at = now
+
+        invitation.status = InvitationStatus.ACCEPTED.value
+        invitation.accepted_by_user_id = current_user.id
+        invitation.accepted_at = now
+        invitation.updated_at = now
         await self._session.flush()
         await self._trace_membership(
             TraceAction.ORG_MEMBER_ACCEPTED, member, current_user.id, {"role": member.role}
@@ -403,6 +484,6 @@ class OrganizationService:
             created_at=member.created_at,
             updated_at=member.updated_at,
             revoked_at=member.revoked_at,
-            email=user.email_normalized,
-            display_name=user.display_name,
+            email=current_user.email_normalized,
+            display_name=current_user.display_name,
         )

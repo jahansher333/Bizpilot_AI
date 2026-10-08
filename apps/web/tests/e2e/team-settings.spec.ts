@@ -9,6 +9,8 @@ test.describe('Team & Settings (R9)', () => {
     await expect(page.getByRole('heading', { name: 'Team' })).toBeVisible();
     await expect(page.getByText('(you)')).toBeVisible();
     await expect(page.getByLabel('Role for Bilal Counter')).toHaveValue('staff');
+    // Pending invitations appear by email only (SEC-P1 F5).
+    await expect(page.getByRole('button', { name: 'Revoke invitation for new.hire@lahorestore.pk' })).toBeVisible();
     await expect(page.getByRole('heading', { name: 'What each role can do' })).toBeVisible();
   });
 

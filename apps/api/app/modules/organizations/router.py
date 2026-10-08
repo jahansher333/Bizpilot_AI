@@ -11,6 +11,7 @@ from app.db.session import get_session
 from app.modules.auth.tokens import AuthenticatedUser, get_current_user
 from app.modules.organizations.schemas import (
     CreateOrganizationRequest,
+    InvitationResponse,
     InviteMemberRequest,
     OrganizationMemberResponse,
     OrganizationResponse,
@@ -91,20 +92,58 @@ async def list_organizations(
 
 @router.post(
     "/{organization_id}/members",
-    response_model=OrganizationMemberResponse,
+    response_model=InvitationResponse,
     status_code=status.HTTP_201_CREATED,
     summary="Invite team member",
-    description="Invites an existing registered user to the organization with a specified role. Restricted to active Owners.",
+    description=(
+        "Invites an email address to the organization with a specified role. The response is the "
+        "same whether or not the email has a BizPilot account. Restricted to active Owners."
+    ),
 )
 async def invite_member(
     organization_id: uuid.UUID,
     request: InviteMemberRequest,
     current_user: AuthenticatedUser = Depends(get_current_user),
     session: AsyncSession = Depends(get_session),
-) -> OrganizationMemberResponse:
-    """Invite a registered user to join the organization."""
+) -> InvitationResponse:
+    """Invite an email address to join the organization."""
     service = OrganizationService(session)
     return await service.invite_member(organization_id, current_user, request)
+
+
+@router.get(
+    "/{organization_id}/invitations",
+    response_model=list[InvitationResponse],
+    status_code=status.HTTP_200_OK,
+    summary="List pending invitations",
+    description="Lists the organization's pending invitations. Restricted to active Owners.",
+)
+async def list_invitations(
+    organization_id: uuid.UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> list[InvitationResponse]:
+    """List pending invitations of an organization."""
+    service = OrganizationService(session)
+    return await service.list_invitations(organization_id, current_user)
+
+
+@router.delete(
+    "/{organization_id}/invitations/{invitation_id}",
+    response_model=InvitationResponse,
+    status_code=status.HTTP_200_OK,
+    summary="Revoke invitation",
+    description="Cancels a pending invitation. Restricted to active Owners.",
+)
+async def revoke_invitation(
+    organization_id: uuid.UUID,
+    invitation_id: uuid.UUID,
+    current_user: AuthenticatedUser = Depends(get_current_user),
+    session: AsyncSession = Depends(get_session),
+) -> InvitationResponse:
+    """Cancel a pending invitation."""
+    service = OrganizationService(session)
+    return await service.revoke_invitation(organization_id, invitation_id, current_user)
 
 
 @router.get(

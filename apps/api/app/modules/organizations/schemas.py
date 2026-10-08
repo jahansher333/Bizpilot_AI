@@ -99,7 +99,7 @@ class InviteMemberRequest(BaseModel):
     email: EmailStr = Field(
         ...,
         max_length=255,
-        description="Registered user's email address.",
+        description="Email address to invite; it does not need a BizPilot account yet.",
     )
     role: MemberRole = Field(
         default=MemberRole.STAFF,
@@ -122,11 +122,11 @@ class UpdateMemberRoleRequest(BaseModel):
 
 
 class PendingInvitationResponse(BaseModel):
-    """A pending invitation addressed to the authenticated user."""
+    """A pending invitation addressed to the authenticated user's email."""
 
     model_config = ConfigDict(extra="forbid")
 
-    membership_id: str = Field(..., description="Membership unique identifier.")
+    invitation_id: str = Field(..., description="Invitation unique identifier.")
     organization_id: str = Field(..., description="Inviting organization identifier.")
     organization_display_name: str = Field(..., description="Inviting organization display name.")
     role: str = Field(..., description="Role offered by the invitation.")
@@ -152,3 +152,23 @@ class OrganizationMemberResponse(BaseModel):
     revoked_at: Optional[datetime] = Field(None, description="Revocation timestamp in UTC if revoked.")
     email: str = Field(..., description="Member user's email address.")
     display_name: str = Field(..., description="Member user's display name.")
+
+
+class InvitationResponse(BaseModel):
+    """An invitation as the inviting owner sees it (SEC-P1 F5).
+
+    Carries only what the owner typed (email, role) plus invitation bookkeeping: never whether the
+    email belongs to an account, or that account's name or ID.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    id: str = Field(..., description="Invitation unique identifier.")
+    organization_id: str = Field(..., description="Organization identifier.")
+    email: str = Field(..., description="Invited email address (normalized).")
+    role: str = Field(..., description="Role offered by the invitation.")
+    status: str = Field(..., description="Invitation status: pending, accepted or revoked.")
+    invited_by_user_id: Optional[str] = Field(default=None, description="Inviting owner's user ID.")
+    created_at: datetime = Field(..., description="Invitation creation timestamp in UTC.")
+    updated_at: datetime = Field(..., description="Last change timestamp in UTC.")
+    expires_at: datetime = Field(..., description="When the invitation stops working, in UTC (7 days).")

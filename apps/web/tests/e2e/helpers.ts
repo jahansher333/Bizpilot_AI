@@ -97,6 +97,17 @@ export async function setupMockApi(page: Page, role: 'owner' | 'manager' | 'staf
     });
   });
 
+  // Mock pending invitations: addressed to emails, never showing an account (SEC-P1 F5)
+  await page.route(`**/api/organizations/${TEST_ORG_ID}/invitations*`, async (route) => {
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify([
+        { id: 'inv-1', organization_id: TEST_ORG_ID, email: 'new.hire@lahorestore.pk', role: 'staff', status: 'pending', created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z' },
+      ]),
+    });
+  });
+
   // Mock Dashboard (DashboardSummary shape; Staff gets no expenses or net cash)
   await page.route(`**/api/organizations/${TEST_ORG_ID}/dashboard*`, async (route) => {
     const today = new Date().toISOString().slice(0, 10);

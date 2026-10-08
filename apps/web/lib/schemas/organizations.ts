@@ -54,8 +54,21 @@ export interface OrganizationMember {
   display_name: string;
 }
 
+/** An invitation as the inviting Owner sees it: only the email and role they chose (SEC-P1 F5). */
+export interface Invitation {
+  id: string;
+  organization_id: string;
+  email: string;
+  role: MemberRole;
+  status: "pending" | "accepted" | "revoked" | string;
+  invited_by_user_id?: string | null;
+  created_at: string;
+  updated_at: string;
+  expires_at: string;
+}
+
 export interface PendingInvitation {
-  membership_id: string;
+  invitation_id: string;
   organization_id: string;
   organization_display_name: string;
   role: MemberRole;

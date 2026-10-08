@@ -4,8 +4,8 @@ import React, { useState } from "react";
 import Link from "next/link";
 import { useOptionalAuth } from "@/hooks/use-auth";
 import { useOrgRole } from "@/hooks/use-org-role";
-import { useRevokeMember, useTeamMembers, useUpdateMemberRole } from "@/hooks/use-team";
-import { MEMBER_ROLES, MemberRole, OrganizationMember } from "@/lib/schemas/organizations";
+import { useRevokeInvitation, useRevokeMember, useTeamInvitations, useTeamMembers, useUpdateMemberRole } from "@/hooks/use-team";
+import { Invitation, MEMBER_ROLES, MemberRole, OrganizationMember } from "@/lib/schemas/organizations";
 import { Icon } from "@/components/ui/icon";
 import { initials } from "@/components/ui/logo";
 import { Modal } from "@/components/ui/modal";
@@ -41,6 +41,23 @@ const CAPABILITIES: [string, string, string, string][] = [
 ];
 const CAP_COLOR: Record<string, string> = { Yes: "var(--success)", "—": "var(--text-muted)", Limited: "var(--warning)" };
 
+/**
+ * Pending invitations are addressed to emails, not accounts (SEC-P1 F5), so they show as "Invited"
+ * rows with the email only: no name, and no hint whether the email already has an account.
+ */
+function invitationRow(invitation: Invitation): OrganizationMember {
+  return {
+    id: invitation.id,
+    organization_id: invitation.organization_id,
+    user_id: "",
+    role: invitation.role,
+    status: "invited",
+    created_at: invitation.updated_at,
+    email: invitation.email,
+    display_name: "",
+  };
+}
+
 function joined(iso: string) {
   return new Intl.DateTimeFormat("en-GB", { timeZone: "Asia/Karachi", day: "numeric", month: "short", year: "numeric" }).format(new Date(iso));
 }
@@ -53,9 +70,19 @@ export function TeamView({ orgId }: TeamViewProps) {
   const orgName = auth?.organizations.find((o) => o.id === orgId)?.display_name;
   const currentUserId = auth?.user?.id;
 
-  const { data: members, isLoading, error, refetch } = useTeamMembers(orgId, isOwner);
+  const membersQuery = useTeamMembers(orgId, isOwner);
+  const invitationsQuery = useTeamInvitations(orgId, isOwner);
+  const isLoading = membersQuery.isLoading || invitationsQuery.isLoading;
+  const error = membersQuery.error || invitationsQuery.error;
+  const refetch = () => Promise.all([membersQuery.refetch(), invitationsQuery.refetch()]);
+  const members =
+    membersQuery.data && invitationsQuery.data
+      ? [...membersQuery.data.filter((m) => m.status !== "invited"), ...invitationsQuery.data.map(invitationRow)]
+      : undefined;
   const roleMutation = useUpdateMemberRole(orgId);
-  const revokeMutation = useRevokeMember(orgId);
+  const revokeMemberMutation = useRevokeMember(orgId);
+  const revokeInvitationMutation = useRevokeInvitation(orgId);
+  const revokeMutation = { isPending: revokeMemberMutation.isPending || revokeInvitationMutation.isPending };
   const { notify } = useToast();
 
   const [inviteOpen, setInviteOpen] = useState(false);
@@ -93,7 +120,8 @@ export function TeamView({ orgId }: TeamViewProps) {
     if (!removing) return;
     setActionError(null);
     try {
-      await revokeMutation.mutateAsync(removing.id);
+      if (removing.status === "invited") await revokeInvitationMutation.mutateAsync(removing.id);
+      else await revokeMemberMutation.mutateAsync(removing.id);
       notify({ title: removing.status === "invited" ? "Invitation revoked" : `${removing.display_name || removing.email} removed` });
       setRemoving(null);
     } catch (err) {
