@@ -167,6 +167,31 @@ describe("authorizedFetch (FIX-005, SEC-P1 F3)", () => {
     }
   });
 
+  it("after a page load, waits for the session restore instead of sending the request without a token", async () => {
+    // Found by the real-backend smoke test: requests fired before the restore refresh got 401s.
+    localStorage.setItem(SESSION_HINT_KEY, "1");
+    let releaseRefresh!: (r: Response) => void;
+    fetchMock.mockImplementation((url: string, init?: RequestInit) => {
+      if (url.includes("/api/auth/refresh")) return new Promise<Response>((r) => (releaseRefresh = r));
+      const auth = new Headers(init?.headers).get("Authorization");
+      return Promise.resolve(auth === "Bearer restored" ? jsonResponse(201, { ok: true }) : jsonResponse(401, {}));
+    });
+
+    const pending = Promise.all([
+      authorizedFetch("http://api.test/api/customers", { method: "POST" }),
+      authorizedFetch("http://api.test/api/customers?status=active"),
+    ]);
+    await vi.waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+    expect(fetchMock.mock.calls[0][0]).toContain("/api/auth/refresh");
+    releaseRefresh(jsonResponse(200, { access_token: "restored" }));
+
+    const [created, listed] = await pending;
+    expect(created.status).toBe(201);
+    expect(listed.status).toBe(201);
+    expect(fetchMock.mock.calls.filter((c) => String(c[0]).includes("/refresh"))).toHaveLength(1);
+    expect(fetchMock.mock.calls.slice(1).every((c) => authHeader(c) === "Bearer restored")).toBe(true);
+  });
+
   it("does not refresh when a request had no token", async () => {
     fetchMock.mockResolvedValueOnce(jsonResponse(401, {}));
 

@@ -151,7 +151,12 @@ export async function authorizedFetch(
   init: RequestInit = {},
   token?: string | null
 ): Promise<Response> {
-  const usedToken = token || getAccessToken();
+  let usedToken = token || getAccessToken();
+  if (!usedToken && hasSessionHint()) {
+    // Right after a page load the access token is not in memory yet: wait for the session-restore
+    // refresh (single-flight, so this joins it) instead of sending the request unauthenticated.
+    usedToken = await refreshAccessToken();
+  }
   const response = await fetch(input, withAuthorization(init, usedToken));
   if (response.status !== 401 || !usedToken) {
     return response;
