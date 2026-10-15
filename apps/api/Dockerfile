@@ -2,7 +2,7 @@
 #   docker build -f apps/api/Dockerfile -t bizpilot-api .
 # Migrations are not run on start (several replicas would race); run them once per release:
 #   docker run --rm --env-file <prod env> bizpilot-api alembic upgrade head
-FROM python:3.12-slim AS build
+FROM python:3.14-slim AS build
 
 WORKDIR /build
 # Exact, hash-checked versions from the lock file; the package itself adds no dependencies.
@@ -13,7 +13,7 @@ COPY apps/api/app apps/api/app
 RUN pip install --no-cache-dir --prefix=/install --no-deps ./apps/api
 
 
-FROM python:3.12-slim
+FROM python:3.14-slim
 
 # libpq is required at runtime by psycopg (pure-Python build).
 RUN apt-get update \
